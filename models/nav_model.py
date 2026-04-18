@@ -14,9 +14,62 @@ from typing import Dict, List, Any
 logging.set_verbosity_error()
 
 
+def maybe_enable_lora(args, logger, lang_model):
+    if not getattr(args, 'use_lora', False):
+        return lang_model
+
+    try:
+        from peft import LoraConfig, get_peft_model
+    except Exception as e:
+        raise ImportError(
+            'LoRA is enabled but `peft` is not installed. '
+            'Please run `pip install peft` in your navillm environment.'
+        ) from e
+
+    target_modules = [m.strip() for m in args.lora_target_modules.split(',') if m.strip()]
+    if not target_modules:
+        raise ValueError('`--lora_target_modules` is empty. Please provide at least one target module.')
+
+    lora_cfg = LoraConfig(
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
+        bias='none',
+        target_modules=target_modules,
+    )
+
+    # Keep the custom Modified* wrapper intact and only adapt the transformer backbone.
+    if hasattr(lang_model.model, 'decoder'):
+        # OPT-style backbone
+        lang_model.model.decoder = get_peft_model(lang_model.model.decoder, lora_cfg)
+    else:
+        # LLaMA-style backbone
+        lang_model.model = get_peft_model(lang_model.model, lora_cfg)
+
+    trainable_params = sum(p.numel() for p in lang_model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in lang_model.parameters())
+    logger.info(
+        'LoRA enabled: r=%d alpha=%d dropout=%.3f target_modules=%s trainable=%.2fM / total=%.2fM',
+        args.lora_r,
+        args.lora_alpha,
+        args.lora_dropout,
+        target_modules,
+        trainable_params / 1e6,
+        total_params / 1e6,
+    )
+    return lang_model
+
+
 def init_vis_config(args, config):
-    cfg_name = 'bert-large-uncased'
-    vis_config = PretrainedConfig.from_pretrained(cfg_name)
+    navillm_root = Path(__file__).resolve().parents[1]
+    local_bert_cfg = navillm_root / 'data' / 'models' / 'bert-large-uncased'
+    cfg_file = local_bert_cfg / 'config.json'
+    if not cfg_file.exists():
+        raise FileNotFoundError(
+            f'Missing local BERT config: {cfg_file}. '
+            'Please download bert-large-uncased config.json to this path.'
+        )
+    vis_config = PretrainedConfig.from_pretrained(str(local_bert_cfg), local_files_only=True)
     vis_config.num_pano_layers = config.num_pano_layers
     vis_config.precision = args.precision
     vis_config.pretrained_model_name_or_path = args.pretrained_model_name_or_path
@@ -47,6 +100,7 @@ class NavModel(nn.Module):
                 else ModifiedLlamaForCausalLM.from_pretrained(config.pretrained_model_name_or_path, config)
         
         self.lang_model.init_tokenizer(config.pretrained_model_name_or_path)
+        self.lang_model = maybe_enable_lora(args, logger, self.lang_model)
 
         self.hidden_size = self.lang_model.hidden_size
         self.model_type = self.lang_model.model_type

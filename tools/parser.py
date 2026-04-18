@@ -93,6 +93,16 @@ def read_args():
     parser.add_argument("--obj_loss_coef", type=float, default=1.)
     parser.add_argument("--teacher_forcing_coef", type=float, default=1.)
     parser.add_argument("--fuse_obj", action="store_true", help="whether fuse object features for REVERIE and SOON")
+    parser.add_argument("--use_lora", action="store_true", help="enable LoRA for language model")
+    parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank")
+    parser.add_argument("--lora_alpha", type=int, default=32, help="LoRA alpha")
+    parser.add_argument("--lora_dropout", type=float, default=0.05, help="LoRA dropout")
+    parser.add_argument(
+        "--lora_target_modules",
+        type=str,
+        default="q_proj,v_proj",
+        help="comma-separated module names for LoRA injection",
+    )
 
     # datasets
     parser.add_argument("--multi_endpoints", type=int, default=1)
