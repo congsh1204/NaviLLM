@@ -6,18 +6,14 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 export PYTHONPATH="${REPO_ROOT}/build:${PYTHONPATH}"
 
 # set java path
-# export JAVA_HOME=$java_path
-# export PATH=$JAVA_HOME/bin:$PATH
-# export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+export JAVA_HOME=$java_path
+export PATH=$JAVA_HOME/bin:$PATH
+export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
 
 # conda activate 在 `sh scripts/...` 下不可用；请先: conda activate navillm
 # 或在 bash 里: source "$(conda info --base)/etc/profile.d/conda.sh" && conda activate navillm
 
-# NCCL / Docker: 若报错 "Error while creating shared memory segment /dev/shm/nccl-*"
-# 根因多为容器 /dev/shm 太小。推荐宿主机启动容器时加大，例如任选其一:
-#   docker run ... --shm-size=8g ...
-#   docker run ... --ipc=host ...
-# 下面环境变量尽量让 NCCL 走 socket，少占共享内存（仍建议加大 shm）。
+
 export NCCL_IB_DISABLE=1
 export NCCL_P2P_DISABLE=1
 export NCCL_SHM_DISABLE=1
@@ -26,11 +22,6 @@ export NCCL_COLLNET_ENABLE=0
 export NCCL_SOCKET_IFNAME=lo
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
-# 仍报 /dev/shm/nccl-*：NCCL 在容器里建共享内存失败。最稳是 docker --shm-size=8g 或 --ipc=host。
-# 软件侧可改用 gloo 分布式后端（不经 NCCL，单机多卡可用，略慢于 NCCL）。
-# 默认用 gloo；若容器已加大 shm 且要用 NCCL： DIST_BACKEND=nccl sh scripts/multi_wo_pretrain.sh
-: "${DIST_BACKEND:=gloo}"
-export DIST_BACKEND
 
 # ---------- torchrun 参数说明（勿在续行 \ 之间插入 # 注释，否则会打断命令）----------
 # --nnodes=1: 单机训练
@@ -47,10 +38,10 @@ export DIST_BACKEND
 
 # training for 30 epochs
 torchrun --nnodes=1 --nproc_per_node=4 --master_port 41000 train.py \
-    --dist-backend "${DIST_BACKEND}" \
+    --mode test \
     --stage multi --cfg_file configs/multi.yaml \
     --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision amp_bf16 \
     --batch_size 1 --gradient_accumulation_step 8 --num_steps_per_epoch 2000 --lr 3e-5 --seed 0 --num_epochs 30 \
     --enable_og --enable_summarize --enable_fgr2r --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --lora_target_modules q_proj,v_proj \
-    --test_datasets CVDN SOON R2R REVERIE ScanQA \
+    --test_datasets ScanQA CVDN SOON R2R REVERIE \
     --max_saved_checkpoints 1 --output_dir output/multi_wo_pretrain

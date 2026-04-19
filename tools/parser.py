@@ -122,7 +122,6 @@ def read_args():
         type=int,
         help="The number of datapoints used for debug."
     )
-
     args = parser.parse_args()
 
     args.local_rank, args.rank, args.world_size = world_info_from_env()

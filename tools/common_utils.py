@@ -118,8 +118,8 @@ def all_gather(data):
     origin_size = None
     if not isinstance(data, torch.Tensor):
         buffer = pickle.dumps(data)
-        storage = torch.ByteStorage.from_buffer(buffer)
-        tensor = torch.ByteTensor(storage).to("cuda")
+        # Avoid deprecated ByteStorage.from_buffer / ByteTensor (PyTorch 2.x TypedStorage warning)
+        tensor = torch.frombuffer(bytearray(buffer), dtype=torch.uint8).to("cuda")
     else:
         origin_size = data.size()
         tensor = data.reshape(-1)

@@ -50,8 +50,11 @@ class Meteor:
             tar.close()
             os.remove(gz_path)
 
-        self.meteor_cmd = ['java', '-jar', '-Xmx2G', METEOR_JAR, \
-                '-', '-', '-stdio', '-l', 'en', '-norm']
+        # JVM options must precede -jar; wrong order makes java print errors on stdout and breaks _stat parsing.
+        self.meteor_cmd = [
+            'java', '-Xmx2G', '-jar', METEOR_JAR,
+            '-', '-', '-stdio', '-l', 'en', '-norm',
+        ]
         self.meteor_p = subprocess.Popen(self.meteor_cmd, \
                 cwd=os.path.dirname(os.path.abspath(__file__)), \
                 stdin=subprocess.PIPE, \
@@ -88,15 +91,40 @@ class Meteor:
         self.meteor_p.stdin.write('{}\n'.format(score_line).encode())
         self.meteor_p.stdin.flush()
         raw = self.meteor_p.stdout.readline().decode().strip()
-        numbers = [str(int(float(n))) for n in raw.split()]
+        if not raw or raw.lower().startswith("error") or raw.startswith("Exception"):
+            raise RuntimeError(
+                "METEOR jar returned a non-score line (check Java, LANG, disk, jar). First line: %r"
+                % (raw[:300],)
+            )
+        numbers = []
+        for n in raw.split():
+            try:
+                numbers.append(str(int(float(n))))
+            except ValueError as e:
+                raise RuntimeError(
+                    "METEOR SCORE line parse failed (unexpected jar output): %r" % (raw[:300],)
+                ) from e
         return ' '.join(numbers)
 
     def __del__(self):
-        self.lock.acquire()
-        self.meteor_p.stdin.close()
-        self.meteor_p.kill()
-        self.meteor_p.wait()
-        self.lock.release()
+        proc = getattr(self, "meteor_p", None)
+        if proc is None:
+            return
+        lock = getattr(self, "lock", None)
+        if lock is not None:
+            lock.acquire()
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+            proc.kill()
+            proc.wait()
+        except Exception:
+            pass
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass
 
     def __str__(self):
         return 'METEOR'

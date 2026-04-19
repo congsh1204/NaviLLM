@@ -1,3 +1,4 @@
+import copy
 import torch
 import collections
 import torch.nn as nn
@@ -12,6 +13,60 @@ from .modified_lm import ModifiedOPTForCasualLM, ModifiedLlamaForCausalLM, TrieL
 from typing import Dict, List, Any
 
 logging.set_verbosity_error()
+
+
+def attach_generation_config(logger, lang_model):
+    """Set generation_config from tokenizer only (do not use from_model_config: it mirrors PretrainedConfig and
+    warns once tokenizer ids differ after resize_token_embeddings)."""
+    try:
+        from transformers import GenerationConfig
+    except ImportError:
+        return lang_model
+    if not hasattr(lang_model, "tokenizer"):
+        return lang_model
+    tok = lang_model.tokenizer
+    pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.unk_token_id
+    gc = GenerationConfig(
+        bos_token_id=tok.bos_token_id,
+        eos_token_id=tok.eos_token_id,
+        pad_token_id=pad_id,
+    )
+    if hasattr(gc, "_from_model_config"):
+        try:
+            gc._from_model_config = False
+        except (AttributeError, TypeError):
+            pass
+    lang_model.generation_config = gc
+    logger.info("Generation config attached to lang_model.")
+    return lang_model
+
+
+def build_gen_config(lang_model, **overrides):
+    """Deep-copy model.generation_config and apply overrides for a single generate() call."""
+    from transformers import GenerationConfig
+
+    base = getattr(lang_model, "generation_config", None)
+    if base is None:
+        tok = lang_model.tokenizer
+        pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.unk_token_id
+        base = GenerationConfig(
+            bos_token_id=tok.bos_token_id,
+            eos_token_id=tok.eos_token_id,
+            pad_token_id=pad_id,
+        )
+    else:
+        base = copy.deepcopy(base)
+    for k, v in overrides.items():
+        if v is None or not hasattr(base, k):
+            continue
+        setattr(base, k, v)
+    return base
+
+
+# Kwargs forwarded into forward_3dqa that map to GenerationConfig fields
+_GEN_KWARGS = frozenset(
+    ("max_new_tokens", "do_sample", "temperature", "top_p", "top_k", "num_beams", "repetition_penalty")
+)
 
 
 def maybe_enable_lora(args, logger, lang_model):
@@ -101,6 +156,7 @@ class NavModel(nn.Module):
         
         self.lang_model.init_tokenizer(config.pretrained_model_name_or_path)
         self.lang_model = maybe_enable_lora(args, logger, self.lang_model)
+        self.lang_model = attach_generation_config(logger, self.lang_model)
 
         self.hidden_size = self.lang_model.hidden_size
         self.model_type = self.lang_model.model_type
@@ -375,17 +431,14 @@ class NavModel(nn.Module):
             trie = kwargs.get('trie', None)
             logits_processor = [TrieLogitsProcessor(trie)] if trie is not None else []
 
+            gen_cfg = build_gen_config(self.lang_model, max_new_tokens=50, do_sample=False)
             generate_ids = self.lang_model.generate(
                 input_ids=text_input['input_ids'],
                 attention_mask=text_input['attention_mask'],
                 cand_vis=vp_img_embeds[vp_nav_masks],
                 hist_vis=hist_vis_input,
-                bos_token_id=self.lang_model.tokenizer.bos_token_id,
-                eos_token_id=self.lang_model.tokenizer.eos_token_id,
-                pad_token_id=self.lang_model.tokenizer.unk_token_id,
-                max_new_tokens=50,
-                do_sample=False,
-                logits_processor=logits_processor
+                generation_config=gen_cfg,
+                logits_processor=logits_processor,
             ).tolist()
 
             generate_ids = [s[text_input["input_ids"].shape[1]:] for i, s in enumerate(generate_ids)]
@@ -438,15 +491,13 @@ class NavModel(nn.Module):
                 cand_vis=pano_embeds[pano_masks],
             )
         else:
-
+            gen_overrides = {k: kwargs[k] for k in _GEN_KWARGS if k in kwargs}
+            gen_cfg = build_gen_config(self.lang_model, **gen_overrides)
             generate_ids = self.lang_model.generate(
                 input_ids=text_input['input_ids'],
                 attention_mask=text_input['attention_mask'],
                 cand_vis=pano_embeds[pano_masks],
-                bos_token_id=self.lang_model.tokenizer.bos_token_id,
-                eos_token_id=self.lang_model.tokenizer.eos_token_id,
-                pad_token_id=self.lang_model.tokenizer.unk_token_id,
-                **kwargs
+                generation_config=gen_cfg,
             ).tolist()
 
             generate_ids = [s[text_input["input_ids"].shape[1]:] for i, s in enumerate(generate_ids)]

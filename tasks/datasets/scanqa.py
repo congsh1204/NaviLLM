@@ -1,6 +1,7 @@
 import os
 import json
 import copy
+import shutil
 from PIL import Image
 from typing import Dict, Any, List, Tuple
 from .llava import LLaVADataset
@@ -81,9 +82,22 @@ class ScanQADataset(LLaVADataset):
         score, compute_score = cider_score.compute_score(refs, gen)
         ret["cider"] = score * 100
 
-        meteor_score = Meteor()
-        score, compute_score = meteor_score.compute_score(refs, gen)
-        ret["meteor"] = score * 100
+        if shutil.which("java"):
+            try:
+                meteor_score = Meteor()
+                score, compute_score = meteor_score.compute_score(refs, gen)
+                ret["meteor"] = score * 100
+            except Exception as e:
+                logger.warning(
+                    "METEOR failed for ScanQA (%s): skipping. "
+                    "Check Java (e.g. openjdk-11-jre), locale, and meteor-1.5.jar under tools/evaluation/meteor/.",
+                    e,
+                )
+        else:
+            logger.warning(
+                "Java not found in PATH: skipping METEOR for ScanQA. "
+                "Install a JRE (e.g. apt-get install -y default-jre-headless) or see README."
+            )
 
         n_correct = 0
         metrics = {"exact_match": []}

@@ -41,7 +41,7 @@ def train_one_epoch(
         agents,
         epoch,
         logger,
-        stage='multi'
+        stage='multi',
 ):
 
     model.train()
@@ -242,7 +242,17 @@ def main():
         for epoch in range(resume_from_epoch, args.num_epochs):
             # training
             train_one_epoch(
-                args, global_cfg, model, optimizer, lr_scheduler, criterion, train_dataloaders, train_agents, epoch, logger, stage=args.stage
+                args,
+                global_cfg,
+                model,
+                optimizer,
+                lr_scheduler,
+                criterion,
+                train_dataloaders,
+                train_agents,
+                epoch,
+                logger,
+                stage=args.stage,
             )
 
             # evaluation

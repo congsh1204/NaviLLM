@@ -1,7 +1,16 @@
+import inspect
 import os
 import torch
 import glob
 from transformers import get_constant_schedule_with_warmup
+
+
+def _torch_load_checkpoint(path, map_location="cpu"):
+    """Load training checkpoint; explicit weights_only=False silences PyTorch 2.4+ FutureWarning on default."""
+    kw = {"map_location": map_location}
+    if "weights_only" in inspect.signature(torch.load).parameters:
+        kw["weights_only"] = False
+    return torch.load(path, **kw)
 
 
 def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
@@ -9,7 +18,7 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
     if args.resume_from_checkpoint is not None:
         if args.rank == 0:
             logger.info(f"Loading checkpoint from {args.resume_from_checkpoint}")
-        checkpoint = torch.load(args.resume_from_checkpoint, map_location="cpu")
+        checkpoint = _torch_load_checkpoint(args.resume_from_checkpoint)
         model_state_dict = model.state_dict()
         state_disk = {k.replace('module.', ''): v for k, v in checkpoint['model_state_dict'].items()}
         update_model_state = {}
