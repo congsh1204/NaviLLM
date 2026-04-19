@@ -16,9 +16,17 @@ def _torch_load_checkpoint(path, map_location="cpu"):
 def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
     resume_from_epoch = 0
     if args.resume_from_checkpoint is not None:
+        ckpt = args.resume_from_checkpoint
+        if not os.path.isfile(ckpt):
+            if args.rank == 0:
+                logger.warning(
+                    "Checkpoint not found (%s); skipping load (pretrained weights only).",
+                    os.path.abspath(ckpt),
+                )
+            return resume_from_epoch
         if args.rank == 0:
-            logger.info(f"Loading checkpoint from {args.resume_from_checkpoint}")
-        checkpoint = _torch_load_checkpoint(args.resume_from_checkpoint)
+            logger.info(f"Loading checkpoint from {ckpt}")
+        checkpoint = _torch_load_checkpoint(ckpt)
         model_state_dict = model.state_dict()
         state_disk = {k.replace('module.', ''): v for k, v in checkpoint['model_state_dict'].items()}
         update_model_state = {}

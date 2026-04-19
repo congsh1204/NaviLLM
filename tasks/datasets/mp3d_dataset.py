@@ -52,6 +52,9 @@ class MP3DDataset(BaseDataset):
 
         # load mp3d dataset
         msg = self._load_data(config, args.data_dir)
+        if getattr(args, "max_datapoints", None):
+            self.alldata = self.alldata[: args.max_datapoints]
+            msg += "\n- Truncated to {} samples (--max_datapoints)".format(len(self.alldata))
         self.buffered_state_dict = {}
 
         # simulator

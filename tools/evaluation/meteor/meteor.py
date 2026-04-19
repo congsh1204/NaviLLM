@@ -84,11 +84,23 @@ class Meteor:
 
         return score, scores
 
+    @staticmethod
+    def _meteor_text(s):
+        """Single-line, METEOR-safe text (newlines break the SCORE/EVAL protocol)."""
+        if s is None:
+            return " "
+        s = str(s).replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        s = s.replace("|||", " ")
+        s = " ".join(s.split())
+        return s if s else " "
+
     def _stat(self, hypothesis_str, reference_list):
-        # SCORE ||| reference 1 words ||| reference n words ||| hypothesis words
-        hypothesis_str = hypothesis_str.replace('|||','').replace('  ',' ')
-        score_line = ' ||| '.join(('SCORE', ' ||| '.join(reference_list), hypothesis_str))
-        self.meteor_p.stdin.write('{}\n'.format(score_line).encode())
+        # One line: SCORE ||| ref1 ||| ref2 ||| ... ||| hypothesis
+        hyp = self._meteor_text(hypothesis_str)
+        refs = [self._meteor_text(r) for r in reference_list]
+        refs = [r for r in refs if r.strip()] or [" "]
+        score_line = " ||| ".join(["SCORE"] + refs + [hyp])
+        self.meteor_p.stdin.write("{}\n".format(score_line).encode())
         self.meteor_p.stdin.flush()
         raw = self.meteor_p.stdout.readline().decode().strip()
         if not raw or raw.lower().startswith("error") or raw.startswith("Exception"):

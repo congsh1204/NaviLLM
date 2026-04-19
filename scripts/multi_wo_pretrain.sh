@@ -22,11 +22,10 @@ export NCCL_COLLNET_ENABLE=0
 export NCCL_SOCKET_IFNAME=lo
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
-
 # ---------- torchrun 参数说明（勿在续行 \ 之间插入 # 注释，否则会打断命令）----------
 # --nnodes=1: 单机训练
 # --nproc_per_node=4: 单机 4 进程（通常 4 卡）
-# --master_port: 分布式端口
+# --master_port: 分布式端口（可用环境变量 MASTER_PORT 覆盖）
 # --stage multi / --cfg_file: 多任务阶段与配置
 # --data_dir / --pretrained_model_name_or_path: 数据根目录与 Vicuna 路径
 # --precision: 混合精度
@@ -38,7 +37,7 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
 # training for 30 epochs
 torchrun --nnodes=1 --nproc_per_node=4 --master_port 41000 train.py \
-    --mode test \
+    --mode train \
     --stage multi --cfg_file configs/multi.yaml \
     --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision amp_bf16 \
     --batch_size 1 --gradient_accumulation_step 8 --num_steps_per_epoch 2000 --lr 3e-5 --seed 0 --num_epochs 30 \

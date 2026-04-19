@@ -32,7 +32,12 @@ def read_args():
     parser.add_argument('--seed', type=int, default=0)
 
     parser.add_argument("--num_epochs", type=int, default=30)
-    parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="path to ckpt to resume from")
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
+        help="Path to .pt checkpoint to load after init. Omit to use pretrained LM weights only (Vicuna from_pretrained + LoRA if --use_lora).",
+    )
     parser.add_argument("--from_scratch", action="store_true")
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--val_batch_size", type=int, default=2)
@@ -124,6 +129,9 @@ def read_args():
     )
     args = parser.parse_args()
 
+    if args.resume_from_checkpoint is not None and not str(args.resume_from_checkpoint).strip():
+        args.resume_from_checkpoint = None
+
     args.local_rank, args.rank, args.world_size = world_info_from_env()
 
     ###################### configurations #########################
@@ -157,9 +165,24 @@ def read_args():
     print(" + rank: {}, + device_id: {}".format(args.local_rank, device_id))
     print(f"Start running training on rank {args.rank}.")
 
-    if os.path.exists(os.path.join(args.output_dir, "latest_states.pt")):
+    # Training resume only: do not auto-load latest_states in test mode (user expects pretrained-only eval unless explicit --resume_from_checkpoint).
+    if (
+        args.mode != "test"
+        and args.resume_from_checkpoint is None
+        and os.path.exists(os.path.join(args.output_dir, "latest_states.pt"))
+    ):
         state_path = os.path.join(args.output_dir, "latest_states.pt")
-        logger.info("Resume checkponit from {}".format(state_path))
+        logger.info("Resume checkpoint from {}".format(state_path))
         args.resume_from_checkpoint = state_path
+
+    if args.resume_from_checkpoint is not None and not os.path.isfile(args.resume_from_checkpoint):
+        logger.warning(
+            "resume_from_checkpoint is missing or not a file (%s); using pretrained LM weights only (no .pt load).",
+            os.path.abspath(args.resume_from_checkpoint),
+        )
+        args.resume_from_checkpoint = None
+
+    if args.rank == 0:
+        logger.info("resume_from_checkpoint (resolved): {}".format(args.resume_from_checkpoint))
 
     return args, global_cfg, logger, device_id
