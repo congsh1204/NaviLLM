@@ -115,6 +115,22 @@ def maybe_enable_lora(args, logger, lang_model):
     return lang_model
 
 
+def configure_llm_training(args, logger, lang_model):
+    update_llm = getattr(args, "update_llm", True)
+    for param in lang_model.parameters():
+        param.requires_grad = update_llm
+
+    trainable_params = sum(p.numel() for p in lang_model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in lang_model.parameters())
+    logger.info(
+        "LLM update is %s: trainable=%.2fM / total=%.2fM",
+        "enabled" if update_llm else "disabled",
+        trainable_params / 1e6,
+        total_params / 1e6,
+    )
+    return lang_model
+
+
 def init_vis_config(args, config):
     navillm_root = Path(__file__).resolve().parents[1]
     local_bert_cfg = navillm_root / 'data' / 'models' / 'bert-large-uncased'
@@ -156,6 +172,7 @@ class NavModel(nn.Module):
         
         self.lang_model.init_tokenizer(config.pretrained_model_name_or_path)
         self.lang_model = maybe_enable_lora(args, logger, self.lang_model)
+        self.lang_model = configure_llm_training(args, logger, self.lang_model)
         self.lang_model = attach_generation_config(logger, self.lang_model)
 
         self.hidden_size = self.lang_model.hidden_size

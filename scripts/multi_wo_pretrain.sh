@@ -43,4 +43,6 @@ torchrun --nnodes=1 --nproc_per_node=4 --master_port 41000 train.py \
     --batch_size 1 --gradient_accumulation_step 8 --num_steps_per_epoch 2000 --lr 3e-5 --seed 0 --num_epochs 30 \
     --enable_og --enable_summarize --enable_fgr2r --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --lora_target_modules q_proj,v_proj \
     --test_datasets ScanQA CVDN SOON R2R REVERIE \
-    --max_saved_checkpoints 1 --output_dir output/multi_wo_pretrain
+    --max_saved_checkpoints 1 --output_dir output/multi_wo_pretrain \
+    --resume_from_checkpoint /checkpoints/model_with_pretrain.pt \
+    --update_llm false

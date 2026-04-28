@@ -19,6 +19,17 @@ def random_seed(seed=0, rank=0):
     np.random.seed(seed)
 
 
+def _str2bool(v):
+    if isinstance(v, bool):
+        return v
+    s = str(v).lower().strip()
+    if s in ("1", "true", "t", "yes", "y", "on"):
+        return True
+    if s in ("0", "false", "f", "no", "n", "off"):
+        return False
+    raise argparse.ArgumentTypeError("expected true or false, got %r" % (v,))
+
+
 def read_args():
     parser = argparse.ArgumentParser()
 
@@ -99,6 +110,15 @@ def read_args():
     parser.add_argument("--teacher_forcing_coef", type=float, default=1.)
     parser.add_argument("--fuse_obj", action="store_true", help="whether fuse object features for REVERIE and SOON")
     parser.add_argument("--use_lora", action="store_true", help="enable LoRA for language model")
+    parser.add_argument(
+        "--update_llm",
+        type=_str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        metavar="true|false",
+        help="update language model (true) or freeze it (false). Use --update_llm alone for true. Default: true",
+    )
     parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank")
     parser.add_argument("--lora_alpha", type=int, default=32, help="LoRA alpha")
     parser.add_argument("--lora_dropout", type=float, default=0.05, help="LoRA dropout")
