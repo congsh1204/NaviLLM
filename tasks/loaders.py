@@ -21,10 +21,16 @@ def create_dataloaders(args, config, logger, training, device, feat_db=None, obj
 
     dataloaders = {}
     agents = {}
-    if args.test_datasets is not None and not training:
+    if training and stage == "multi" and args.train_datasets is not None:
+        dataset_list = args.train_datasets
+    elif args.test_datasets is not None and not training:
         dataset_list = args.test_datasets
     else:
         dataset_list = copy.deepcopy(dataset_cfg.SOURCE)
+
+    source_to_ratio = {}
+    if hasattr(dataset_cfg, "SOURCE") and hasattr(dataset_cfg, "Ratio"):
+        source_to_ratio = {name: ratio for name, ratio in zip(dataset_cfg.SOURCE, dataset_cfg.Ratio)}
     for k, task_name in enumerate(dataset_list):
         # load dataset by names
         dataset = load_dataset(task_name.lower(), args, dataset_cfg, training=training, logger=logger, source=task_name)
@@ -61,7 +67,11 @@ def create_dataloaders(args, config, logger, training, device, feat_db=None, obj
         )
 
         if training:
-            ratio = dataset_cfg.Ratio[k]
+            if source_to_ratio and task_name not in source_to_ratio:
+                raise ValueError(
+                    f"Unknown training task `{task_name}`. Available tasks: {list(source_to_ratio.keys())}"
+                )
+            ratio = source_to_ratio.get(task_name, 1)
             dataloaders[task_name] = (task_loader, ratio, pre_epoch)
         else:
             dataloaders[task_name] = PrefetchLoader(task_loader, device=device)

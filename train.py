@@ -60,7 +60,11 @@ def train_one_epoch(
     )
     
     dataset_cfg = global_cfg.Pretrain if stage=='pretrain' else global_cfg.Multi
-    loss_stats = {k: Metrics() for k in dataset_cfg.SOURCE}
+    if stage == 'multi' and getattr(args, "train_datasets", None):
+        tracked_tasks = list(args.train_datasets)
+    else:
+        tracked_tasks = list(dataset_cfg.SOURCE)
+    loss_stats = {k: Metrics() for k in tracked_tasks}
 
     for step, (name, batch) in enumerate(dataloaders):
         loss_coef = dataset_cfg.LOSS_COEF.get(name, 1.)
@@ -100,7 +104,7 @@ def train_one_epoch(
                 instr_pred_metric=instr_pred_metric.average,
                 lr=lr_scheduler.get_last_lr()[0],
             )
-            for k in dataset_cfg.SOURCE:
+            for k in tracked_tasks:
                 verbose_dict[k] = loss_stats[k].average
             pbar.set_postfix(verbose_dict)
             pbar.update()
@@ -109,7 +113,7 @@ def train_one_epoch(
             logger.info("***** train [{}] epoch *****".format(epoch))
             train_stat_str = 'Loss: %.2f\n' % loss_metric.average
             train_stat_str += "Instr_pred: %.2f\n" % instr_pred_metric.average
-            for task in dataset_cfg.SOURCE:
+            for task in tracked_tasks:
                 train_stat_str += "%s: %.2f\n" % (task, loss_stats[task].average)
             logger.info(train_stat_str)
             break

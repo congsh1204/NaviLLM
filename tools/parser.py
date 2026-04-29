@@ -132,6 +132,13 @@ def read_args():
     # datasets
     parser.add_argument("--multi_endpoints", type=int, default=1)
     parser.add_argument("--path_type", type=str, default="trusted_path", choices=["planner_path", "trusted_path"])
+    parser.add_argument(
+        "--train_datasets",
+        type=str,
+        default=None,
+        nargs='+',
+        help="Optional training dataset list for stage=multi (e.g., R2R SOON). If not set, uses cfg SOURCE for joint multi-task training.",
+    )
 
     # evaluation
     parser.add_argument('--test_datasets', type=str, default=None, nargs='+')
