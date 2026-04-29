@@ -196,11 +196,12 @@ def read_args():
         args.resume_from_checkpoint = state_path
 
     if args.resume_from_checkpoint is not None and not os.path.isfile(args.resume_from_checkpoint):
-        logger.warning(
-            "resume_from_checkpoint is missing or not a file (%s); using pretrained LM weights only (no .pt load).",
-            os.path.abspath(args.resume_from_checkpoint),
+        raise FileNotFoundError(
+            "resume_from_checkpoint is missing or not a file: {}. "
+            "Please provide a valid .pt checkpoint path.".format(
+                os.path.abspath(args.resume_from_checkpoint)
+            )
         )
-        args.resume_from_checkpoint = None
 
     if args.rank == 0:
         logger.info("resume_from_checkpoint (resolved): {}".format(args.resume_from_checkpoint))
