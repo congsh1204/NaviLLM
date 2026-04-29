@@ -729,7 +729,23 @@ class MP3DAgent(BaseAgent):
                 nav_logits = nav_outs['fuse_logits']
                 nav_vpids = nav_inputs['gmap_vpids']
 
-                nav_probs = torch.softmax(nav_logits / args.temperature, 1)
+                if args.precision == "fp16":
+                    # fp16 training on V100 may occasionally produce NaN/Inf logits.
+                    # Sanitize here to avoid invalid probs in downstream sampling.
+                    nav_logits = torch.nan_to_num(nav_logits, nan=0.0, posinf=1e4, neginf=-1e4)
+                    nav_probs = torch.softmax(nav_logits / args.temperature, 1)
+                    nav_probs = torch.nan_to_num(nav_probs, nan=0.0, posinf=0.0, neginf=0.0)
+                    nav_prob_sums = nav_probs.sum(dim=1, keepdim=True)
+                    invalid_rows = nav_prob_sums.squeeze(1) <= 0
+                    if invalid_rows.any():
+                        fallback_probs = torch.zeros_like(nav_probs)
+                        # action 0 is stop action in this code path
+                        fallback_probs[:, 0] = 1.0
+                        nav_probs = torch.where(invalid_rows.unsqueeze(1), fallback_probs, nav_probs)
+                        nav_prob_sums = nav_probs.sum(dim=1, keepdim=True)
+                    nav_probs = nav_probs / nav_prob_sums.clamp_min(1e-12)
+                else:
+                    nav_probs = torch.softmax(nav_logits / args.temperature, 1)
 
                 imitation_learning = feedback == 'teacher'
                 # Imitation Learning

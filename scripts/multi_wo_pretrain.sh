@@ -14,8 +14,6 @@ export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
 # 或在 bash 里: source "$(conda info --base)/etc/profile.d/conda.sh" && conda activate navillm
 
 
-export NCCL_IB_DISABLE=1
-export NCCL_P2P_DISABLE=1
 export NCCL_SHM_DISABLE=1
 export NCCL_NVLS_ENABLE=0
 export NCCL_COLLNET_ENABLE=0
@@ -34,12 +32,15 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 # --use_lora 及 lora_*: LoRA 微调（需 pip install peft）
 # --test_datasets: 验证集
 # --max_saved_checkpoints / --output_dir: checkpoint 与输出目录
+# 精度映射：
+# v100 -> amp_fp16
+# a100 -> amp_bf16
 
 # training for 30 epochs
 torchrun --nnodes=1 --nproc_per_node=4 --master_port 41000 train.py \
     --mode train \
     --stage multi --cfg_file configs/multi.yaml \
-    --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision amp_bf16 \
+    --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision amp_fp16 \
     --batch_size 1 --gradient_accumulation_step 8 --num_steps_per_epoch 2000 --lr 3e-5 --seed 0 --num_epochs 30 \
     --enable_og --enable_summarize --enable_fgr2r --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --lora_target_modules q_proj,v_proj \
     --test_datasets ScanQA CVDN SOON R2R REVERIE \
