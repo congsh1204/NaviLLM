@@ -30,15 +30,29 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
         model_state_dict = model.state_dict()
         state_disk = {k.replace('module.', ''): v for k, v in checkpoint['model_state_dict'].items()}
         update_model_state = {}
+        ignored_keys = []
         for key, val in state_disk.items():
             if key in model_state_dict and model_state_dict[key].shape == val.shape:
                 update_model_state[key] = val
             else:
-                logger.info(
-                    'Ignore weight %s: %s' % (key, str(val.shape))
-                )
+                ignored_keys.append((key, tuple(val.shape)))
         msg = model.load_state_dict(update_model_state, strict=False)
-        logger.info(msg)
+        missing_keys = list(getattr(msg, "missing_keys", []))
+        unexpected_keys = list(getattr(msg, "unexpected_keys", []))
+        logger.info(
+            "Checkpoint load summary: matched=%d, ignored=%d, missing=%d, unexpected=%d",
+            len(update_model_state),
+            len(ignored_keys),
+            len(missing_keys),
+            len(unexpected_keys),
+        )
+        # Keep detailed diagnostics in debug level to avoid log spam.
+        if ignored_keys:
+            logger.debug("Ignored keys (shape mismatch or absent): %s", ignored_keys)
+        if missing_keys:
+            logger.debug("Missing keys: %s", missing_keys)
+        if unexpected_keys:
+            logger.debug("Unexpected keys: %s", unexpected_keys)
 
         if 'epoch' in checkpoint:
             resume_from_epoch = checkpoint['epoch'] + 1

@@ -186,12 +186,18 @@ class NavModel(nn.Module):
         self.config = config
 
         # Large Language Model
-        if args.resume_from_checkpoint is not None or args.from_scratch:
-            logger.info("Initialize the model from config.")
+        # Preferred loading flow for LoRA finetuning:
+        # 1) load original LLM backbone from pretrained weights
+        # 2) inject LoRA adapters
+        # 3) optionally load task checkpoint (non-LLM parts and any matching keys)
+        # Use config-based random init only when explicitly requested by --from_scratch.
+        if args.from_scratch:
+            logger.info("Initialize the model from config (--from_scratch).")
             model_config = AutoConfig.from_pretrained(config.pretrained_model_name_or_path)
             self.lang_model = ModifiedOPTForCasualLM(model_config, config) if 'opt' in config.pretrained_model_name_or_path \
                 else ModifiedLlamaForCausalLM(model_config, config)
         else:
+            logger.info("Initialize the model from pretrained backbone.")
             self.lang_model = ModifiedOPTForCasualLM.from_pretrained(config.pretrained_model_name_or_path, config) if "opt" in config.pretrained_model_name_or_path \
                 else ModifiedLlamaForCausalLM.from_pretrained(config.pretrained_model_name_or_path, config)
         
