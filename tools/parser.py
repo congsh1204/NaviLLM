@@ -117,7 +117,7 @@ def read_args():
         const=True,
         default=True,
         metavar="true|false",
-        help="update language model (true) or freeze it (false). Use --update_llm alone for true. Default: true",
+        help="whether LLM participates in training (true/false). If true and --use_lora is set: LoRA-only finetuning; if true and --use_lora is not set: full LLM finetuning.",
     )
     parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank")
     parser.add_argument("--lora_alpha", type=int, default=32, help="LoRA alpha")

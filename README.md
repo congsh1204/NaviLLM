@@ -198,6 +198,27 @@ Since the performance of direct multi-task finetuning is comparable to the two-s
 sh scripts/multi_wo_pretrain.sh
 ```
 
+**LLM/LoRA training mode**
+
+We support three explicit LLM training modes controlled by `--update_llm` and `--use_lora`:
+
+- `--update_llm false`: freeze the whole LLM (LLM does not participate in training).
+- `--update_llm true --use_lora`: LoRA-only finetuning (only LoRA adapter weights are trainable).
+- `--update_llm true` (without `--use_lora`): full LLM finetuning (all LLM weights are trainable).
+
+This logic is implemented in `models/nav_model.py` (`configure_llm_training`).
+For memory-efficient finetuning, we recommend LoRA-only mode:
+
+```bash
+python train.py ... --use_lora --update_llm true
+```
+
+Recommended check in logs:
+
+- `LLM training mode: frozen`
+- `LLM training mode: lora_only`
+- `LLM training mode: full_finetune`
+
 **4. Inference**:
 During the testing phase, we employ a sampling strategy with a temperature of 0.01 for action generation in the SOON and REVERIE tasks, to encourage more exploration. For other tasks, we opt for a greedy strategy in generating actions.
 ```bash

@@ -119,28 +119,36 @@ def configure_llm_training(args, logger, lang_model):
     update_llm = getattr(args, "update_llm", True)
     use_lora = getattr(args, "use_lora", False)
 
-    if update_llm:
-        # Full language-model finetuning (or LoRA+base finetuning if --use_lora is set).
-        for param in lang_model.parameters():
-            param.requires_grad = True
-    else:
-        # Freeze base language model.
+    # 1) If LLM update is disabled, freeze all language-model parameters.
+    if not update_llm:
         for param in lang_model.parameters():
             param.requires_grad = False
-
-        # LoRA fine-tuning: keep LoRA adapters trainable even when --update_llm is false.
-        # Peft usually names adapter weights with `lora_A`/`lora_B` (and/or `lora_` prefix).
-        if use_lora:
-            for name, param in lang_model.named_parameters():
-                lname = name.lower()
-                if "lora_" in lname or "lora_a" in lname or "lora_b" in lname:
-                    param.requires_grad = True
+    # 2) If LLM update is enabled:
+    #    - use_lora=True  -> LoRA-only finetuning
+    #    - use_lora=False -> full LLM finetuning
+    elif use_lora:
+        for param in lang_model.parameters():
+            param.requires_grad = False
+        for name, param in lang_model.named_parameters():
+            lname = name.lower()
+            if "lora_" in lname or "lora_a" in lname or "lora_b" in lname:
+                param.requires_grad = True
+    else:
+        for param in lang_model.parameters():
+            param.requires_grad = True
 
     trainable_params = sum(p.numel() for p in lang_model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in lang_model.parameters())
+    if not update_llm:
+        llm_mode = "frozen"
+    elif use_lora:
+        llm_mode = "lora_only"
+    else:
+        llm_mode = "full_finetune"
     logger.info(
-        "LLM update is %s (use_lora=%s): trainable=%.2fM / total=%.2fM",
-        "enabled" if update_llm else "disabled",
+        "LLM training mode: %s (update_llm=%s, use_lora=%s): trainable=%.2fM / total=%.2fM",
+        llm_mode,
+        update_llm,
         use_lora,
         trainable_params / 1e6,
         total_params / 1e6,
