@@ -141,11 +141,12 @@ class GraphMap(object):
             else:
                 self.node_embeds[vp] = [embed, 1]
         if self.etg_memory is not None:
-            self.etg_memory.update_scene_feature(vp, self.get_node_embed(vp).detach().clone())
+            # store ETG node feature safely (ETG memory will place it on CPU)
+            self.etg_memory.update_scene_feature(vp, self.get_node_embed(vp).detach())
 
     def update_node_object_feature(self, vp, object_embed):
         if self.etg_memory is not None and object_embed is not None:
-            self.etg_memory.update_object_feature(vp, object_embed.detach().clone())
+            self.etg_memory.update_object_feature(vp, object_embed.detach())
 
     def update_node_status(self, vp, visited=None, traj_order=None, step_id=None):
         if self.etg_memory is not None:

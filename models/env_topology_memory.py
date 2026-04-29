@@ -25,10 +25,28 @@ class EnvironmentTopologyMemory(object):
 
     def update_scene_feature(self, vp, feat):
         self._ensure_node(vp)
+        # Avoid keeping GPU tensors inside memory; store compact CPU data.
+        if hasattr(feat, "detach"):
+            feat = feat.detach()
+        if hasattr(feat, "to"):
+            feat = feat.to(dtype="float16")
+        if hasattr(feat, "cpu"):
+            feat = feat.cpu()
+        if hasattr(feat, "numpy"):
+            feat = feat.numpy()
         self.nodes[vp]["s_env"] = feat
 
     def update_object_feature(self, vp, feat):
         self._ensure_node(vp)
+        # Avoid keeping GPU tensors inside memory; store compact CPU data.
+        if hasattr(feat, "detach"):
+            feat = feat.detach()
+        if hasattr(feat, "to"):
+            feat = feat.to(dtype="float16")
+        if hasattr(feat, "cpu"):
+            feat = feat.cpu()
+        if hasattr(feat, "numpy"):
+            feat = feat.numpy()
         self.nodes[vp]["d_env"] = feat
 
     def update_status(self, vp, visited=None, traj_order=None, step_id=None):

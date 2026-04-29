@@ -49,4 +49,3 @@ torchrun --nnodes=1 --nproc_per_node=8 --master_port 41000 train.py \
     --max_saved_checkpoints 1 --output_dir output/multi_wo_pretrain \
     --resume_from_checkpoint /code/NaviLLM/checkpoints/model_with_pretrain.pt \
     --update_llm false \
-    --use_env_memory

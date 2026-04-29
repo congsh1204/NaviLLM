@@ -117,14 +117,31 @@ def maybe_enable_lora(args, logger, lang_model):
 
 def configure_llm_training(args, logger, lang_model):
     update_llm = getattr(args, "update_llm", True)
-    for param in lang_model.parameters():
-        param.requires_grad = update_llm
+    use_lora = getattr(args, "use_lora", False)
+
+    if update_llm:
+        # Full language-model finetuning (or LoRA+base finetuning if --use_lora is set).
+        for param in lang_model.parameters():
+            param.requires_grad = True
+    else:
+        # Freeze base language model.
+        for param in lang_model.parameters():
+            param.requires_grad = False
+
+        # LoRA fine-tuning: keep LoRA adapters trainable even when --update_llm is false.
+        # Peft usually names adapter weights with `lora_A`/`lora_B` (and/or `lora_` prefix).
+        if use_lora:
+            for name, param in lang_model.named_parameters():
+                lname = name.lower()
+                if "lora_" in lname or "lora_a" in lname or "lora_b" in lname:
+                    param.requires_grad = True
 
     trainable_params = sum(p.numel() for p in lang_model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in lang_model.parameters())
     logger.info(
-        "LLM update is %s: trainable=%.2fM / total=%.2fM",
+        "LLM update is %s (use_lora=%s): trainable=%.2fM / total=%.2fM",
         "enabled" if update_llm else "disabled",
+        use_lora,
         trainable_params / 1e6,
         total_params / 1e6,
     )
