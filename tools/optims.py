@@ -13,6 +13,34 @@ def _torch_load_checkpoint(path, map_location="cpu"):
     return torch.load(path, **kw)
 
 
+def _remap_lora_checkpoint_key(key: str) -> str:
+    """
+    Remap legacy non-LoRA LLM keys to PEFT-LoRA wrapped key space.
+    Example:
+      lang_model.model.layers.0.self_attn.q_proj.weight
+        -> lang_model.model.base_model.model.layers.0.self_attn.q_proj.base_layer.weight
+    """
+    new_key = key
+
+    # LLaMA backbone path wrapped by PEFT: lang_model.model -> lang_model.model.base_model.model
+    if new_key.startswith("lang_model.model.") and not new_key.startswith("lang_model.model.base_model.model."):
+        suffix = new_key[len("lang_model.model."):]
+        if (
+            suffix.startswith("layers.")
+            or suffix.startswith("embed_tokens.")
+            or suffix.startswith("norm.")
+        ):
+            new_key = "lang_model.model.base_model.model." + suffix
+
+    # For LoRA-targeted modules, original base weights are nested under `base_layer`.
+    if new_key.endswith(".self_attn.q_proj.weight"):
+        new_key = new_key[:-len(".weight")] + ".base_layer.weight"
+    elif new_key.endswith(".self_attn.v_proj.weight"):
+        new_key = new_key[:-len(".weight")] + ".base_layer.weight"
+
+    return new_key
+
+
 def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
     resume_from_epoch = 0
     if args.resume_from_checkpoint is not None:
@@ -28,7 +56,20 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
             logger.info(f"Loading checkpoint from {ckpt}")
         checkpoint = _torch_load_checkpoint(ckpt)
         model_state_dict = model.state_dict()
-        state_disk = {k.replace('module.', ''): v for k, v in checkpoint['model_state_dict'].items()}
+        state_disk_raw = {k.replace('module.', ''): v for k, v in checkpoint['model_state_dict'].items()}
+        if getattr(args, "use_lora", False):
+            state_disk = {}
+            remapped_cnt = 0
+            for k, v in state_disk_raw.items():
+                nk = _remap_lora_checkpoint_key(k)
+                if nk != k:
+                    remapped_cnt += 1
+                # Prefer remapped key; if collision happens, keep first one.
+                if nk not in state_disk:
+                    state_disk[nk] = v
+            logger.info("LoRA checkpoint key remap applied: %d keys remapped", remapped_cnt)
+        else:
+            state_disk = state_disk_raw
         update_model_state = {}
         ignored_keys = []
         for key, val in state_disk.items():
