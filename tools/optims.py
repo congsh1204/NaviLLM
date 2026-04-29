@@ -46,13 +46,12 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
             len(missing_keys),
             len(unexpected_keys),
         )
-        # Keep detailed diagnostics in debug level to avoid log spam.
         if ignored_keys:
-            logger.debug("Ignored keys (shape mismatch or absent): %s", ignored_keys)
+            logger.info("Ignored keys (shape mismatch or absent): %s", ignored_keys)
         if missing_keys:
-            logger.debug("Missing keys: %s", missing_keys)
+            logger.info("Missing keys: %s", missing_keys)
         if unexpected_keys:
-            logger.debug("Unexpected keys: %s", unexpected_keys)
+            logger.info("Unexpected keys: %s", unexpected_keys)
 
         if 'epoch' in checkpoint:
             resume_from_epoch = checkpoint['epoch'] + 1
