@@ -630,7 +630,7 @@ class MP3DAgent(BaseAgent):
         batch_size = len(obs)
 
         # build graph: keep the start viewpoint
-        gmaps = [GraphMap(ob['viewpoint']) for ob in obs]
+        gmaps = [GraphMap(ob['viewpoint'], use_env_memory=getattr(args, "use_env_memory", False)) for ob in obs]
         for i, ob in enumerate(obs):
             gmaps[i].update_graph(ob)
 
@@ -676,7 +676,9 @@ class MP3DAgent(BaseAgent):
             with context():
                 for i, gmap in enumerate(gmaps):
                     if not ended[i]:
-                        gmap.node_step_ids[obs[i]['viewpoint']] = t + 1
+                        cur_vp = obs[i]['viewpoint']
+                        gmap.node_step_ids[cur_vp] = t + 1
+                        gmap.update_node_status(cur_vp, visited=True, traj_order=t + 1, step_id=t + 1)
 
                 # graph representation
                 pano_inputs = self.panorama_feature_variable_object(obs)
@@ -691,11 +693,16 @@ class MP3DAgent(BaseAgent):
                         i_vp = obs[i]['viewpoint']
                         update_avg_pana_embeds = avg_pano_embeds[i].detach()  # update average features for gmap.
                         gmap.update_node_embed(i_vp, update_avg_pana_embeds, rewrite=True)
+                        if 'obj_embeds' in panorama_out:
+                            i_obj_embeds = panorama_out['obj_embeds'][i]
+                            if i_obj_embeds.shape[0] > 0:
+                                gmap.update_node_object_feature(i_vp, i_obj_embeds.mean(dim=0))
                         # update unvisited nodes
                         for j, i_cand_vp in enumerate(pano_inputs['cand_vpids'][i]):
                             if not gmap.graph.visited(i_cand_vp):
                                 update_pano_embeds = pano_embeds[i, j].detach()
                                 gmap.update_node_embed(i_cand_vp, update_pano_embeds)
+                                gmap.update_node_status(i_cand_vp, visited=False)
 
                 # navigation policy
                 nav_inputs = self.nav_gmap_variable(obs, gmaps)

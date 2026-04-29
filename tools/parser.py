@@ -139,6 +139,11 @@ def read_args():
         nargs='+',
         help="Optional training dataset list for stage=multi (e.g., R2R SOON). If not set, uses cfg SOURCE for joint multi-task training.",
     )
+    parser.add_argument(
+        "--use_env_memory",
+        action="store_true",
+        help="enable environment topology memory updates",
+    )
 
     # evaluation
     parser.add_argument('--test_datasets', type=str, default=None, nargs='+')

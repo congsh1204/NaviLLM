@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from collections import defaultdict
+from .env_topology_memory import EnvironmentTopologyMemory
 
 MAX_DIST = 30
 MAX_STEP = 10
@@ -97,8 +98,9 @@ class FloydGraph(object):
 
 
 class GraphMap(object):
-    def __init__(self, start_vp):
+    def __init__(self, start_vp, use_env_memory=False):
         self.start_vp = start_vp  # start viewpoint
+        self.use_env_memory = use_env_memory
 
         self.node_positions = {}  # viewpoint to position (x, y, z)
         self.graph = FloydGraph()  # shortest path graph
@@ -107,13 +109,20 @@ class GraphMap(object):
         self.node_nav_scores = {}  # {viewpoint: {t: prob}}
         self.node_step_ids = {}
         self.pooling_mode = 'mean'
+        self.etg_memory = EnvironmentTopologyMemory() if self.use_env_memory else None
+        if self.etg_memory is not None:
+            self.etg_memory.update_status(start_vp, visited=True, traj_order=0, step_id=0)
 
     def update_graph(self, ob):
         self.node_positions[ob['viewpoint']] = ob['position']
+        if self.etg_memory is not None:
+            self.etg_memory.update_status(ob['viewpoint'], visited=True)
         for cc in ob['candidate']:
             self.node_positions[cc['viewpointId']] = cc['position']
             dist = calc_position_distance(ob['position'], cc['position'])
             self.graph.add_edge(ob['viewpoint'], cc['viewpointId'], dist)
+            if self.etg_memory is not None:
+                self.etg_memory.add_edge(ob['viewpoint'], cc['viewpointId'])
         self.graph.update(ob['viewpoint'])
 
     def update_node_embed(self, vp, embed, rewrite=False):
@@ -131,6 +140,16 @@ class GraphMap(object):
                 self.node_embeds[vp][1] += 1
             else:
                 self.node_embeds[vp] = [embed, 1]
+        if self.etg_memory is not None:
+            self.etg_memory.update_scene_feature(vp, self.get_node_embed(vp).detach().clone())
+
+    def update_node_object_feature(self, vp, object_embed):
+        if self.etg_memory is not None and object_embed is not None:
+            self.etg_memory.update_object_feature(vp, object_embed.detach().clone())
+
+    def update_node_status(self, vp, visited=None, traj_order=None, step_id=None):
+        if self.etg_memory is not None:
+            self.etg_memory.update_status(vp, visited=visited, traj_order=traj_order, step_id=step_id)
 
 
     def get_node_embed(self, vp):
@@ -182,6 +201,9 @@ class GraphMap(object):
             for kk in v.keys():
                 edges.append((k, kk))
 
-        return {'nodes': nodes, 'edges': edges}
+        out = {'nodes': nodes, 'edges': edges}
+        if self.etg_memory is not None:
+            out['etg_memory'] = self.etg_memory.to_json()
+        return out
 
 
