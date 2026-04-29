@@ -80,17 +80,30 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
         msg = model.load_state_dict(update_model_state, strict=False)
         missing_keys = list(getattr(msg, "missing_keys", []))
         unexpected_keys = list(getattr(msg, "unexpected_keys", []))
+        expected_missing_lora = []
+        if getattr(args, "use_lora", False):
+            non_lora_missing = []
+            for k in missing_keys:
+                lk = k.lower()
+                if ("lora_a" in lk) or ("lora_b" in lk):
+                    expected_missing_lora.append(k)
+                else:
+                    non_lora_missing.append(k)
+            missing_keys = non_lora_missing
         logger.info(
-            "Checkpoint load summary: matched=%d, ignored=%d, missing=%d, unexpected=%d",
+            "Checkpoint load summary: matched=%d, ignored=%d, missing=%d, expected_missing_lora=%d, unexpected=%d",
             len(update_model_state),
             len(ignored_keys),
             len(missing_keys),
+            len(expected_missing_lora),
             len(unexpected_keys),
         )
         if ignored_keys:
             logger.info("Ignored keys (shape mismatch or absent): %s", ignored_keys)
         if missing_keys:
             logger.info("Missing keys: %s", missing_keys)
+        if expected_missing_lora:
+            logger.info("Expected missing LoRA keys: %d", len(expected_missing_lora))
         if unexpected_keys:
             logger.info("Unexpected keys: %s", unexpected_keys)
 
