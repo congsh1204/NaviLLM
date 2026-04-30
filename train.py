@@ -7,6 +7,8 @@ from tqdm import tqdm
 from pathlib import Path
 from typing import Dict
 import torch.nn as nn
+import torch.distributed as dist
+from torch.distributed.elastic.multiprocessing.errors import record
 from tools.common_utils import all_gather
 from tools.parser import read_args, random_seed
 from tools.debug_nan import check_gradients, debug_nan_from_args, warn_if_multi_gpu
@@ -353,4 +355,12 @@ def main():
             logger.info(best_results)
 
 if __name__ == '__main__':
-    main()
+    @record
+    def _main_with_error_recording():
+        try:
+            main()
+        finally:
+            if dist.is_available() and dist.is_initialized():
+                dist.destroy_process_group()
+
+    _main_with_error_recording()
