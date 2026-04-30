@@ -115,16 +115,33 @@ class MP3DAgent(BaseAgent):
             # cand views
             used_viewidxs = set()
             for j, cc in enumerate(ob['candidate']):
-                view_img_fts.append(cc['feature'][:self.args.image_feat_size])
-                view_ang_fts.append(cc['feature'][self.args.image_feat_size:])
+                cand_feat = np.asarray(cc['feature'])
+                if debug_nan_from_args(self.args) and (not np.isfinite(cand_feat).all()):
+                    print(
+                        f"[DEBUG_NAN][feature_input] non-finite candidate feature: "
+                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} cand_vp={cc.get('viewpointId')} pointId={cc.get('pointId')}",
+                        flush=True
+                    )
+                    cand_feat = np.nan_to_num(cand_feat, nan=0.0, posinf=0.0, neginf=0.0)
+                view_img_fts.append(cand_feat[:self.args.image_feat_size])
+                view_ang_fts.append(cand_feat[self.args.image_feat_size:])
                 nav_types.append(1)
                 cand_vpids.append(cc['viewpointId'])
                 used_viewidxs.add(cc['pointId'])
             # non cand views
-            view_img_fts.extend([x[:self.args.image_feat_size] for k, x \
-                                 in enumerate(ob['feature']) if k not in used_viewidxs])
-            view_ang_fts.extend([x[self.args.image_feat_size:] for k, x \
-                                 in enumerate(ob['feature']) if k not in used_viewidxs])
+            for k, x in enumerate(ob['feature']):
+                if k in used_viewidxs:
+                    continue
+                view_feat = np.asarray(x)
+                if debug_nan_from_args(self.args) and (not np.isfinite(view_feat).all()):
+                    print(
+                        f"[DEBUG_NAN][feature_input] non-finite pano feature: "
+                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k}",
+                        flush=True
+                    )
+                    view_feat = np.nan_to_num(view_feat, nan=0.0, posinf=0.0, neginf=0.0)
+                view_img_fts.append(view_feat[:self.args.image_feat_size])
+                view_ang_fts.append(view_feat[self.args.image_feat_size:])
             nav_types.extend([0] * (36 - len(used_viewidxs)))
             # combine cand views and noncand views
             view_img_fts = np.stack(view_img_fts, 0)  # (n_views, dim_ft)
@@ -229,9 +246,20 @@ class MP3DAgent(BaseAgent):
         batch_cand_vpids = []
 
         for i, ob in enumerate(obs):
-            view_img_fts = [x[:self.args.image_feat_size]  for k,x in enumerate(ob['feature'])]
+            view_img_fts = []
+            view_ang_fts = []
+            for k, x in enumerate(ob['feature']):
+                view_feat = np.asarray(x)
+                if debug_nan_from_args(self.args) and (not np.isfinite(view_feat).all()):
+                    print(
+                        f"[DEBUG_NAN][feature_input_12v] non-finite feature: "
+                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k}",
+                        flush=True
+                    )
+                    view_feat = np.nan_to_num(view_feat, nan=0.0, posinf=0.0, neginf=0.0)
+                view_img_fts.append(view_feat[:self.args.image_feat_size])
+                view_ang_fts.append(view_feat[self.args.image_feat_size:])
             view_img_fts = np.stack(view_img_fts, 0)  # (n_views, dim_ft)
-            view_ang_fts = [x[self.args.image_feat_size:] for k, x in enumerate(ob['feature'])]
             view_box_fts = np.array([[1, 1, 1]] * len(view_img_fts)).astype(np.float32)
             view_ang_fts = np.stack(view_ang_fts, 0)
             view_loc_fts = np.concatenate([view_ang_fts, view_box_fts], 1)  
@@ -940,12 +968,16 @@ class MP3DAgent(BaseAgent):
                     nav_inputs["prompts"] = self.prepare_prompts("embodied_qa", nav_inputs)
                     output = model('embodied_qa', nav_inputs, training=not validate, **kwargs)
                     if not validate:
+                        raw_lm_loss = output["loss"]
                         if debug_nan_from_args(args):
-                            report_loss_nonfinite("lm_loss_fgr2r", output["loss"])
-                        lm_loss = output["loss"] * args.gen_loss_coef / batch_size / args.gradient_accumulation_step
-                        lm_loss.backward()
-                        instr_pred_metric.accumulate(lm_loss.detach().item() * args.gradient_accumulation_step)
-                        ml_loss += lm_loss.detach()
+                            report_loss_nonfinite("lm_loss_fgr2r", raw_lm_loss)
+                        if torch.isfinite(raw_lm_loss):
+                            lm_loss = raw_lm_loss * args.gen_loss_coef / batch_size / args.gradient_accumulation_step
+                            lm_loss.backward()
+                            instr_pred_metric.accumulate(lm_loss.detach().item() * args.gradient_accumulation_step)
+                            ml_loss += lm_loss.detach()
+                        elif debug_nan_from_args(args):
+                            print("[DEBUG_NAN] skip backward for non-finite lm_loss_fgr2r", flush=True)
             
                 ########### Navigation Summarization Sub-task ###########
                 if data_type[0] == 'eqa':
@@ -978,12 +1010,16 @@ class MP3DAgent(BaseAgent):
                     nav_inputs["prompts"] = self.prepare_prompts("summarization", nav_inputs)
                     output = model('summarization', nav_inputs, training=not validate, **kwargs)
                     if not validate:
+                        raw_lm_loss = output["loss"]
                         if debug_nan_from_args(args):
-                            report_loss_nonfinite("lm_loss_summarize", output["loss"])
-                        lm_loss = output["loss"] * args.gen_loss_coef / batch_size / args.gradient_accumulation_step
-                        lm_loss.backward()
-                        instr_pred_metric.accumulate(lm_loss.detach().item() * args.gradient_accumulation_step)
-                        ml_loss += lm_loss.detach()
+                            report_loss_nonfinite("lm_loss_summarize", raw_lm_loss)
+                        if torch.isfinite(raw_lm_loss):
+                            lm_loss = raw_lm_loss * args.gen_loss_coef / batch_size / args.gradient_accumulation_step
+                            lm_loss.backward()
+                            instr_pred_metric.accumulate(lm_loss.detach().item() * args.gradient_accumulation_step)
+                            ml_loss += lm_loss.detach()
+                        elif debug_nan_from_args(args):
+                            print("[DEBUG_NAN] skip backward for non-finite lm_loss_summarize", flush=True)
                     else:
                         for i in range(batch_size):
                             generated_sentences = output["generated_sentences"]
