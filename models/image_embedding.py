@@ -65,11 +65,19 @@ class ImageEmbeddings(nn.Module):
         batch_size = view_img_fts.shape[0]
         if self.debug_nan and not torch.isfinite(view_img_fts).all():
             raise RuntimeError("Non-finite raw view_img_fts before panorama projector")
-        pano_embeds = self.img_layer_norm(
-            self.img_linear(view_img_fts)
-        )
+        x_linear = self.img_linear(view_img_fts)
+        if self.debug_nan and not torch.isfinite(x_linear).all():
+            bad_w = not torch.isfinite(self.img_linear.weight).all()
+            bad_b = (self.img_linear.bias is not None) and (not torch.isfinite(self.img_linear.bias).all())
+            raise RuntimeError(
+                f"Non-finite tensor after img_linear (bad_weight={bad_w}, bad_bias={bad_b}, "
+                f"input_finite={bool(torch.isfinite(view_img_fts).all())})"
+            )
+        pano_embeds = self.img_layer_norm(x_linear)
         if self.debug_nan and not torch.isfinite(pano_embeds).all():
-            raise RuntimeError("Non-finite tensor after img_linear/img_layer_norm")
+            raise RuntimeError(
+                f"Non-finite tensor after img_layer_norm (input_finite={bool(torch.isfinite(x_linear).all())})"
+            )
         if loc_fts is None:
             loc_fts = torch.zeros(pano_embeds.shape[:2]+(7,), dtype=torch.float).to(pano_embeds.device)
         pano_embeds += self.loc_layer_norm(self.loc_linear(loc_fts))

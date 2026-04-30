@@ -32,13 +32,18 @@ class Metrics(object):
         return self.total / self.num
 
 
-def _assert_model_parameters_finite(model, logger):
+def _collect_nonfinite_parameters(model, limit=20):
     bad = []
     for n, p in model.named_parameters():
         if not torch.isfinite(p).all():
             bad.append(n)
-            if len(bad) >= 20:
+            if len(bad) >= limit:
                 break
+    return bad
+
+
+def _assert_model_parameters_finite(model, logger):
+    bad = _collect_nonfinite_parameters(model, limit=20)
     if bad:
         logger.error("Non-finite model parameters before training: %s", bad)
         raise RuntimeError("Model has non-finite parameters before training")
@@ -118,6 +123,16 @@ def train_one_epoch(
                         len(bg),
                     )
             optimizer.step()
+            if debug_nan_from_args(args):
+                bad_after_step = _collect_nonfinite_parameters(
+                    model.module if hasattr(model, "module") else model, limit=20
+                )
+                if bad_after_step:
+                    logger.error(
+                        "DEBUG_NAN: model parameters became non-finite right after optimizer.step(): %s",
+                        bad_after_step,
+                    )
+                    raise RuntimeError("Non-finite parameters after optimizer.step()")
             optimizer.zero_grad()
 
         lr_scheduler.step()
