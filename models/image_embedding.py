@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import os
 from .ops import (
     create_transformer_encoder,
     gen_seq_masks,
@@ -47,6 +48,9 @@ class ImageEmbeddings(nn.Module):
             self.pano_encoder = None
 
         self.mapper = nn.Linear(config.hidden_size, config.output_size)
+        self.debug_nan = os.environ.get("DEBUG_NAN", "").strip().lower() in ("1", "true", "yes", "on", "y")
+        # When debugging NaNs, run projector in fp32 for stability.
+        self.projector_fp32 = self.debug_nan
 
     def forward_panorama_per_step(self, 
         view_img_fts, 
@@ -59,9 +63,13 @@ class ImageEmbeddings(nn.Module):
     ):
         ret = {}
         batch_size = view_img_fts.shape[0]
+        if self.debug_nan and not torch.isfinite(view_img_fts).all():
+            raise RuntimeError("Non-finite raw view_img_fts before panorama projector")
         pano_embeds = self.img_layer_norm(
             self.img_linear(view_img_fts)
         )
+        if self.debug_nan and not torch.isfinite(pano_embeds).all():
+            raise RuntimeError("Non-finite tensor after img_linear/img_layer_norm")
         if loc_fts is None:
             loc_fts = torch.zeros(pano_embeds.shape[:2]+(7,), dtype=torch.float).to(pano_embeds.device)
         pano_embeds += self.loc_layer_norm(self.loc_linear(loc_fts))
@@ -72,6 +80,8 @@ class ImageEmbeddings(nn.Module):
 
         pano_embeds = self.layer_norm(pano_embeds)
         pano_embeds = self.dropout(pano_embeds)
+        if self.debug_nan and not torch.isfinite(pano_embeds).all():
+            raise RuntimeError("Non-finite tensor before mapper projector")
         pano_masks = gen_seq_masks(view_lens)
         if self.pano_encoder is not None:
 
@@ -99,7 +109,13 @@ class ImageEmbeddings(nn.Module):
                 )
 
 
-        pano_embeds = self.mapper(pano_embeds)
+        if self.projector_fp32:
+            orig_dtype = pano_embeds.dtype
+            pano_embeds = self.mapper(pano_embeds.float()).to(orig_dtype)
+        else:
+            pano_embeds = self.mapper(pano_embeds)
+        if self.debug_nan and not torch.isfinite(pano_embeds).all():
+            raise RuntimeError("Non-finite pano_embeds after mapper projector")
         pano_embeds.masked_fill_(pano_masks.logical_not().unsqueeze(-1), 0)
 
         ret.update({

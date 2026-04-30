@@ -170,6 +170,7 @@ class MP3DAgent(BaseAgent):
     def panorama_feature_variable_object(self, obs):
         ''' Extract precomputed features into variable. '''
         has_obj = 'obj_img_fts' in obs[0]
+        feat_file = getattr(getattr(self, "feat_db", None), "img_ft_file", None)
 
         batch_view_img_fts, batch_obj_img_fts, batch_loc_fts, batch_nav_types = [], [], [], []
         batch_view_lens, batch_obj_lens, batch_obj_loc_fts = [], [], []
@@ -180,16 +181,34 @@ class MP3DAgent(BaseAgent):
             # cand views
             used_viewidxs = set()
             for j, cc in enumerate(ob['candidate']):
-                view_img_fts.append(cc['feature'][:self.args.image_feat_size])
-                view_ang_fts.append(cc['feature'][self.args.image_feat_size:])
+                cand_feat = np.asarray(cc['feature'])
+                if debug_nan_from_args(self.args) and (not np.isfinite(cand_feat).all()):
+                    print(
+                        f"[DEBUG_NAN][feature_input] non-finite candidate feature: "
+                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} cand_vp={cc.get('viewpointId')} pointId={cc.get('pointId')} "
+                        f"feat_file={feat_file}",
+                        flush=True
+                    )
+                    cand_feat = np.nan_to_num(cand_feat, nan=0.0, posinf=0.0, neginf=0.0)
+                view_img_fts.append(cand_feat[:self.args.image_feat_size])
+                view_ang_fts.append(cand_feat[self.args.image_feat_size:])
                 nav_types.append(1)
                 cand_vpids.append(cc['viewpointId'])
                 used_viewidxs.add(cc['pointId'])
             # non cand views
-            view_img_fts.extend([x[:self.args.image_feat_size] for k, x \
-                                 in enumerate(ob['feature']) if k not in used_viewidxs])
-            view_ang_fts.extend([x[self.args.image_feat_size:] for k, x \
-                                 in enumerate(ob['feature']) if k not in used_viewidxs])
+            for k, x in enumerate(ob['feature']):
+                if k in used_viewidxs:
+                    continue
+                view_feat = np.asarray(x)
+                if debug_nan_from_args(self.args) and (not np.isfinite(view_feat).all()):
+                    print(
+                        f"[DEBUG_NAN][feature_input] non-finite pano feature: "
+                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k} feat_file={feat_file}",
+                        flush=True
+                    )
+                    view_feat = np.nan_to_num(view_feat, nan=0.0, posinf=0.0, neginf=0.0)
+                view_img_fts.append(view_feat[:self.args.image_feat_size])
+                view_ang_fts.append(view_feat[self.args.image_feat_size:])
             nav_types.extend([0] * (36 - len(used_viewidxs)))
             # combine cand views and noncand views
             view_img_fts = np.stack(view_img_fts, 0)  # (n_views, dim_ft)
@@ -239,6 +258,7 @@ class MP3DAgent(BaseAgent):
         return ret
     
     def panorama_feature_variable_12views(self, obs):
+        feat_file = getattr(getattr(self, "feat_db", None), "img_ft_file", None)
         batch_view_img_fts = []
         batch_loc_fts = []
         batch_view_lens = []
@@ -253,7 +273,7 @@ class MP3DAgent(BaseAgent):
                 if debug_nan_from_args(self.args) and (not np.isfinite(view_feat).all()):
                     print(
                         f"[DEBUG_NAN][feature_input_12v] non-finite feature: "
-                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k}",
+                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k} feat_file={feat_file}",
                         flush=True
                     )
                     view_feat = np.nan_to_num(view_feat, nan=0.0, posinf=0.0, neginf=0.0)
@@ -520,11 +540,10 @@ class MP3DAgent(BaseAgent):
             action = a_t[i]
             if action is not None:            # None is the <stop> action
                 step_path = gmaps[i].graph.path(ob['viewpoint'], action)
-                traj[i]['path'].append(step_path)
                 if len(step_path) >= 2:
                     prev_vp = step_path[-2]
                 elif len(step_path) == 1:
-                    prev_vp = traj[i]['path'][-2][-1] if len(traj[i]['path']) >= 2 and len(traj[i]['path'][-2]) > 0 else ob['viewpoint']
+                    prev_vp = ob['viewpoint']
                 else:
                     prev_vp = ob['viewpoint']
 
@@ -545,8 +564,10 @@ class MP3DAgent(BaseAgent):
                             f"available={list(cand_map.keys())[:20]} (truncated)",
                             flush=True
                         )
+                    # Avoid polluting trajectory with invalid self-loop/empty-path transitions.
                     continue
 
+                traj[i]['path'].append(step_path if len(step_path) > 0 else [ob['viewpoint']])
                 viewidx = cand_map[action]
                 heading = (viewidx % 12) * math.radians(30)
                 elevation = (viewidx // 12 - 1) * math.radians(30)
@@ -690,6 +711,8 @@ class MP3DAgent(BaseAgent):
         obs = batch_dict["observations"]
         envs = batch_dict["env"]
         data_type = batch_dict['data_type']
+        # keep feature DB handle for DEBUG_NAN tracebacks
+        self.feat_db = getattr(dataset, "feat_db", None)
 
         max_action_len = config.val_max_action_len[name] if validate else config.train_max_action_len[name]
 
@@ -767,6 +790,8 @@ class MP3DAgent(BaseAgent):
                                 f"[DEBUG_NAN][panorama_forward] non-finite img_embeddings params: {bad_params[:10]}",
                                 flush=True
                             )
+                if not torch.isfinite(pano_embeds).all():
+                    raise RuntimeError("Non-finite pano_embeds detected; abort rollout immediately")
                 pano_den = pano_denominator_for_avg(pano_masks, args)
                 avg_pano_embeds = torch.sum(pano_embeds * pano_masks.unsqueeze(2), 1) / pano_den  # [B, D=768]
 
