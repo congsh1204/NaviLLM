@@ -200,11 +200,18 @@ sh scripts/multi_wo_pretrain.sh
 
 **LLM/LoRA training mode**
 
-We support three explicit LLM training modes controlled by `--update_llm` and `--use_lora`:
+CLI defaults: **`--update_llm`** is **`false`** (frozen LM unless you pass `true`); **`--use_lora`** is **`off`** unless you pass the flag — same as argparse `store_true`.
 
-- `--update_llm false`: freeze the whole LLM (LLM does not participate in training).
-- `--update_llm true --use_lora`: LoRA-only finetuning (only LoRA adapter weights are trainable).
-- `--update_llm true` (without `--use_lora`): full LLM finetuning (all LLM weights are trainable).
+Training scripts under `scripts/` set `--update_llm true`, and LoRA setups add **`--use_lora`** explicitly.
+
+`--update_llm` selects whether LM weights receive gradient updates:
+
+- **`--update_llm false`**: all LM weights frozen — no LM finetuning; **`--use_lora` is not allowed** (the program exits with an error). Use for eval-style runs where the LM should not receive updates. Other heads may still be trainable if their parameters stay `requires_grad=True`.
+- **`--update_llm true`**: LM side may train; sub-mode is chosen with **`--use_lora`**:
+  - **`--use_lora` set**: **LoRA-only** — backbone frozen; only adapter weights (`lora_*`) are trainable.
+  - **`--use_lora` not set**: **full LM finetuning** — all LM weights trainable.
+
+Loading a **LoRA** checkpoint for eval still requires **`--update_llm true --use_lora`** so the model shape matches; `update_llm true` only controls `requires_grad`, not whether you run the optimizer in `test` mode.
 
 This logic is implemented in `models/nav_model.py` (`configure_llm_training`).
 For memory-efficient finetuning, we recommend LoRA-only mode:

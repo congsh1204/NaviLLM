@@ -14,4 +14,5 @@ torchrun --nnodes=1 --nproc_per_node=8 --master_port 43000 train.py \
     --stage multi --cfg_file configs/ablation/cvdn.yaml \
     --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision amp_bf16 \
     --batch_size 1 --gradient_accumulation_step 8 --lr 3e-5 --seed 0 --num_epochs 20 \
+    --update_llm true \
     --max_saved_checkpoints 1 --output_dir build/albation/cvdn

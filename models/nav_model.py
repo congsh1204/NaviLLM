@@ -116,8 +116,19 @@ def maybe_enable_lora(args, logger, lang_model):
 
 
 def configure_llm_training(args, logger, lang_model):
-    update_llm = getattr(args, "update_llm", True)
+    """Set LM requires_grad from --update_llm and --use_lora.
+
+    ``update_llm`` false: freeze all LM weights (no LM updates; typical for inference/eval-only semantics).
+    ``update_llm`` true: LM is trainable — if ``use_lora``, backbone frozen and only LoRA adapters train;
+    otherwise full LM finetuning.
+
+    CLI enforces ``not (use_lora and not update_llm)`` in ``tools/parser.py``; the check below
+    catches callers that construct ``args`` without the parser (e.g. tests).
+    """
+    update_llm = getattr(args, "update_llm", False)
     use_lora = getattr(args, "use_lora", False)
+    if use_lora and not update_llm:
+        raise ValueError("use_lora requires update_llm true (same rule as argument parsing).")
 
     # 1) If LLM update is disabled, freeze all language-model parameters.
     if not update_llm:

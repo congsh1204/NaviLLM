@@ -109,15 +109,25 @@ def read_args():
     parser.add_argument("--obj_loss_coef", type=float, default=1.)
     parser.add_argument("--teacher_forcing_coef", type=float, default=1.)
     parser.add_argument("--fuse_obj", action="store_true", help="whether fuse object features for REVERIE and SOON")
-    parser.add_argument("--use_lora", action="store_true", help="enable LoRA for language model")
+    parser.add_argument(
+        "--use_lora",
+        action="store_true",
+        default=False,
+        help="enable LoRA for the language model (default: off; requires --update_llm true)",
+    )
     parser.add_argument(
         "--update_llm",
         type=_str2bool,
         nargs="?",
         const=True,
-        default=True,
+        default=False,
         metavar="true|false",
-        help="whether LLM participates in training (true/false). If true and --use_lora is set: LoRA-only finetuning; if true and --use_lora is not set: full LLM finetuning.",
+        help=(
+            "Train the LM or keep it frozen (default: false — LM frozen unless you enable training). "
+            "false: freeze all LM weights; --use_lora is not allowed. "
+            "true + --use_lora: backbone frozen, LoRA adapters trainable. "
+            "true without --use_lora: full LM finetuning."
+        ),
     )
     parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank")
     parser.add_argument("--lora_alpha", type=int, default=32, help="LoRA alpha")
@@ -160,6 +170,11 @@ def read_args():
         help="The number of datapoints used for debug."
     )
     args = parser.parse_args()
+
+    if args.use_lora and not args.update_llm:
+        parser.error(
+            "--use_lora requires --update_llm true. When LLM updates are disabled, LoRA must not be enabled."
+        )
 
     if args.resume_from_checkpoint is not None and not str(args.resume_from_checkpoint).strip():
         args.resume_from_checkpoint = None
