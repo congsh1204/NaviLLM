@@ -45,6 +45,12 @@ def read_args():
         action='store_true',
         help='NaN 调试模式（优先单 GPU）；亦可设环境变量 DEBUG_NAN=1。见 tools/debug_nan.py',
     )
+    parser.add_argument(
+        '--debug_nan_log_every',
+        type=int,
+        default=10,
+        help='DEBUG_NAN 聚合日志打印间隔（每 N 个 rollout step 打印一次 stop_rate 和 step_path_len 分布）',
+    )
     parser.add_argument('--seed', type=int, default=0)
 
     parser.add_argument("--num_epochs", type=int, default=30)

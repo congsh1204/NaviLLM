@@ -15,6 +15,7 @@ from models.graph_utils import GraphMap
 from typing import List
 
 from tools.debug_nan import (
+    dist_rank,
     debug_nan_from_args,
     dbg_nonfinite_tensors,
     maybe_patch_zero_valid_navigation,
@@ -536,10 +537,12 @@ class MP3DAgent(BaseAgent):
         It will convert the action panoramic view action a_t to equivalent egocentric view actions for the simulator
         """
         dbg = debug_nan_from_args(self.args)
+        step_path_lens = [0 for _ in range(len(obs))]  # 0 means <stop> or not executed
         for i, ob in enumerate(obs):
             action = a_t[i]
             if action is not None:            # None is the <stop> action
                 step_path = gmaps[i].graph.path(ob['viewpoint'], action)
+                step_path_lens[i] = len(step_path)
                 if len(step_path) >= 2:
                     prev_vp = step_path[-2]
                 elif len(step_path) == 1:
@@ -577,6 +580,7 @@ class MP3DAgent(BaseAgent):
                         flush=True
                     )
                 env[i].sims[0].newEpisode([ob['scan']], [action], [heading], [elevation])
+        return step_path_lens
 
     def train(
         self, 
@@ -1077,7 +1081,26 @@ class MP3DAgent(BaseAgent):
                             cpu_a_t.append(nav_vpids[i][a_t[i]])
 
                 # Make action and get the new state
-                self.make_equiv_action(cpu_a_t, gmaps, obs, traj=traj, env=envs)
+                step_path_lens = self.make_equiv_action(cpu_a_t, gmaps, obs, traj=traj, env=envs)
+                if debug_nan_from_args(args):
+                    # Print aggregated behavior every N steps to quickly judge over-stopping.
+                    debug_every = max(1, int(getattr(args, "debug_nan_log_every", 10)))
+                    if (t % debug_every) == 0:
+                        stop_num = sum([1 for x in cpu_a_t if x is None])
+                        non_stop_lens = [x for x in step_path_lens if x > 0]
+                        len_1 = sum([1 for x in non_stop_lens if x == 1])
+                        len_2 = sum([1 for x in non_stop_lens if x == 2])
+                        len_3p = sum([1 for x in non_stop_lens if x >= 3])
+                        move_num = len(non_stop_lens)
+                        print(
+                            f"[DEBUG_NAN][rank={dist_rank()}] t={t} "
+                            f"stop_rate={stop_num / max(1, batch_size):.4f} ({stop_num}/{batch_size}) "
+                            f"step_path_len_dist(non-stop): "
+                            f"1:{len_1 / max(1, move_num):.4f}({len_1}) "
+                            f"2:{len_2 / max(1, move_num):.4f}({len_2}) "
+                            f"3+:{len_3p / max(1, move_num):.4f}({len_3p})",
+                            flush=True
+                        )
 
                 for i in range(batch_size):
                     if (not ended[i]) and just_ended[i]:
