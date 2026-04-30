@@ -16,7 +16,7 @@ export PYTHONPATH="${REPO_ROOT}/build:${PYTHONPATH}"
 
 # ---------- 按需修改 ----------
 MASTER_PORT="${MASTER_PORT:-41100}"
-NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
 
 DATA_DIR="${DATA_DIR:-data}"
 LM_PATH="${LM_PATH:-data/models/Vicuna-7B}"
@@ -29,6 +29,20 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export DEBUG_NAN=1
+
+VISIBLE_GPU_COUNT="$(python - <<'PY'
+import torch
+print(torch.cuda.device_count() if torch.cuda.is_available() else 0)
+PY
+)"
+if [ "${VISIBLE_GPU_COUNT}" -lt "${NPROC_PER_NODE}" ]; then
+  echo "error: debug_nan.sh would launch ${NPROC_PER_NODE} ranks, but only ${VISIBLE_GPU_COUNT} CUDA device(s) are visible." >&2
+  echo "       CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" >&2
+  echo "       For single-GPU NaN debug, run: unset NPROC_PER_NODE; CUDA_VISIBLE_DEVICES=0 sh scripts/debug_nan.sh" >&2
+  exit 1
+fi
+
+echo "DEBUG_NAN launch: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}, NPROC_PER_NODE=${NPROC_PER_NODE}, visible_gpus=${VISIBLE_GPU_COUNT}"
 
 RESUME_ARGS=""
 if [ -n "${CHECKPOINT}" ] && [ -f "${CHECKPOINT}" ]; then
