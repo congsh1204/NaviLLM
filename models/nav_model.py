@@ -251,7 +251,7 @@ class NavModel(nn.Module):
         # Classfification from candidates
         self.out_head = nn.Sequential(
             nn.Linear(self.hidden_size, 100)
-        ).to(self.lang_model.model_type)
+        ).to(torch.float32)
 
         self.instruction = None
         self.history = None
@@ -403,7 +403,10 @@ class NavModel(nn.Module):
         fuse_logits = torch.zeros((fuse_embeds.shape[0], fuse_embeds.shape[1])).to(
             fuse_embeds.device).to(self.model_type)
         
-        predictions = self.out_head(hidden_states[text_input['input_ids']==self.lang_model.cls_token_id[0]])
+        # Keep classification head in fp32 to avoid first-step fp16 overflow.
+        predictions = self.out_head(
+            hidden_states[text_input['input_ids']==self.lang_model.cls_token_id[0]].float()
+        ).to(self.model_type)
         
         for i in range(batch_size):
             fuse_logits[i][cand_masks[i]] = torch.cat([predictions[i, 0:1],predictions[i, 1:cand_nums[i]][inv_perms[i]]],dim=0)
@@ -609,7 +612,9 @@ class NavModel(nn.Module):
         )
         loss, hidden_states = output.loss, output.hidden_states
 
-        predictions = self.out_head(hidden_states[text_input['input_ids']==self.lang_model.cls_token_id[0]])
+        predictions = self.out_head(
+            hidden_states[text_input['input_ids']==self.lang_model.cls_token_id[0]].float()
+        ).to(self.model_type)
         for i in range(batch_size):
             predictions[i, cand_nums[i]:] = float('-inf')
 
