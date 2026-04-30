@@ -487,17 +487,46 @@ class MP3DAgent(BaseAgent):
         Interface between Panoramic view and Egocentric view
         It will convert the action panoramic view action a_t to equivalent egocentric view actions for the simulator
         """
+        dbg = debug_nan_from_args(self.args)
         for i, ob in enumerate(obs):
             action = a_t[i]
             if action is not None:            # None is the <stop> action
-                traj[i]['path'].append(gmaps[i].graph.path(ob['viewpoint'], action))
-                if len(traj[i]['path'][-1]) == 1:
-                    prev_vp = traj[i]['path'][-2][-1]
+                step_path = gmaps[i].graph.path(ob['viewpoint'], action)
+                traj[i]['path'].append(step_path)
+                if len(step_path) >= 2:
+                    prev_vp = step_path[-2]
+                elif len(step_path) == 1:
+                    prev_vp = traj[i]['path'][-2][-1] if len(traj[i]['path']) >= 2 and len(traj[i]['path'][-2]) > 0 else ob['viewpoint']
                 else:
-                    prev_vp = traj[i]['path'][-1][-2]
-                viewidx = self.scanvp_cands['%s_%s'%(ob['scan'], prev_vp)][action]
+                    prev_vp = ob['viewpoint']
+
+                scanvp_key = '%s_%s' % (ob['scan'], prev_vp)
+                cand_map = self.scanvp_cands.get(scanvp_key, {})
+                if dbg:
+                    print(
+                        f"[DEBUG_NAN][make_equiv_action] i={i} scan={ob['scan']} cur_vp={ob['viewpoint']} "
+                        f"action={action} step_path={step_path} prev_vp={prev_vp} "
+                        f"scanvp_key={scanvp_key} cand_num={len(cand_map)} traj_len={len(traj[i]['path'])}",
+                        flush=True
+                    )
+
+                if action not in cand_map:
+                    if dbg:
+                        print(
+                            f"[DEBUG_NAN][make_equiv_action] action missing in cand_map: action={action}, "
+                            f"available={list(cand_map.keys())[:20]} (truncated)",
+                            flush=True
+                        )
+                    continue
+
+                viewidx = cand_map[action]
                 heading = (viewidx % 12) * math.radians(30)
                 elevation = (viewidx // 12 - 1) * math.radians(30)
+                if dbg:
+                    print(
+                        f"[DEBUG_NAN][make_equiv_action] viewidx={viewidx} heading={heading:.4f} elevation={elevation:.4f}",
+                        flush=True
+                    )
                 env[i].sims[0].newEpisode([ob['scan']], [action], [heading], [elevation])
 
     def train(

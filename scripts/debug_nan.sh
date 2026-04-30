@@ -20,7 +20,7 @@ NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 
 DATA_DIR="${DATA_DIR:-data}"
 LM_PATH="${LM_PATH:-data/models/Vicuna-7B}"
-CHECKPOINT="${CHECKPOINT:- /code/NaviLLM/checkpoints/model_with_pretrain.pt}"
+CHECKPOINT="${CHECKPOINT:-/code/NaviLLM/checkpoints/model_with_pretrain.pt}"
 # 清空则不加 --resume_from_checkpoint（仅从 Vicuna init）
 PRECISION="${PRECISION:-fp16}"
 OUTPUT_DIR="${OUTPUT_DIR:-output/debug_nan}"
