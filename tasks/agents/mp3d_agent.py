@@ -183,14 +183,6 @@ class MP3DAgent(BaseAgent):
             used_viewidxs = set()
             for j, cc in enumerate(ob['candidate']):
                 cand_feat = np.asarray(cc['feature'])
-                if debug_nan_from_args(self.args) and (not np.isfinite(cand_feat).all()):
-                    print(
-                        f"[DEBUG_NAN][feature_input] non-finite candidate feature: "
-                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} cand_vp={cc.get('viewpointId')} pointId={cc.get('pointId')} "
-                        f"feat_file={feat_file}",
-                        flush=True
-                    )
-                    cand_feat = np.nan_to_num(cand_feat, nan=0.0, posinf=0.0, neginf=0.0)
                 view_img_fts.append(cand_feat[:self.args.image_feat_size])
                 view_ang_fts.append(cand_feat[self.args.image_feat_size:])
                 nav_types.append(1)
@@ -201,13 +193,6 @@ class MP3DAgent(BaseAgent):
                 if k in used_viewidxs:
                     continue
                 view_feat = np.asarray(x)
-                if debug_nan_from_args(self.args) and (not np.isfinite(view_feat).all()):
-                    print(
-                        f"[DEBUG_NAN][feature_input] non-finite pano feature: "
-                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k} feat_file={feat_file}",
-                        flush=True
-                    )
-                    view_feat = np.nan_to_num(view_feat, nan=0.0, posinf=0.0, neginf=0.0)
                 view_img_fts.append(view_feat[:self.args.image_feat_size])
                 view_ang_fts.append(view_feat[self.args.image_feat_size:])
             nav_types.extend([0] * (36 - len(used_viewidxs)))
@@ -271,13 +256,6 @@ class MP3DAgent(BaseAgent):
             view_ang_fts = []
             for k, x in enumerate(ob['feature']):
                 view_feat = np.asarray(x)
-                if debug_nan_from_args(self.args) and (not np.isfinite(view_feat).all()):
-                    print(
-                        f"[DEBUG_NAN][feature_input_12v] non-finite feature: "
-                        f"scan={ob.get('scan')} vp={ob.get('viewpoint')} view_idx={k} feat_file={feat_file}",
-                        flush=True
-                    )
-                    view_feat = np.nan_to_num(view_feat, nan=0.0, posinf=0.0, neginf=0.0)
                 view_img_fts.append(view_feat[:self.args.image_feat_size])
                 view_ang_fts.append(view_feat[self.args.image_feat_size:])
             view_img_fts = np.stack(view_img_fts, 0)  # (n_views, dim_ft)
@@ -476,7 +454,9 @@ class MP3DAgent(BaseAgent):
                                     min_dist = dist
                                     min_idx = j
                         a[i] = min_idx
-                        if min_idx == self.args.ignoreid:
+                        if min_idx == self.args.ignoreid and (
+                            debug_nan_from_args(self.args) or getattr(self.args, "debug", False)
+                        ):
                             print('scan %s: all vps are searched' % (scan))
         return torch.from_numpy(a).cuda()
 
@@ -508,7 +488,9 @@ class MP3DAgent(BaseAgent):
                                 min_dist = dist
                                 min_idx = j
                     a[i] = min_idx
-                    if min_idx == self.args.ignoreid:
+                    if min_idx == self.args.ignoreid and (
+                        debug_nan_from_args(self.args) or getattr(self.args, "debug", False)
+                    ):
                         print('scan %s: all vps are searched' % (scan))
 
         return torch.from_numpy(a).cuda()
@@ -537,21 +519,21 @@ class MP3DAgent(BaseAgent):
         It will convert the action panoramic view action a_t to equivalent egocentric view actions for the simulator
         """
         dbg = debug_nan_from_args(self.args)
-        step_path_lens = [0 for _ in range(len(obs))]  # 0 means <stop> or not executed
+        step_path_lens = [0 for _ in range(len(obs))] if dbg else None
         for i, ob in enumerate(obs):
             action = a_t[i]
             if action is not None:            # None is the <stop> action
                 step_path = gmaps[i].graph.path(ob['viewpoint'], action)
-                step_path_lens[i] = len(step_path)
-                if len(step_path) >= 2:
-                    prev_vp = step_path[-2]
-                elif len(step_path) == 1:
-                    prev_vp = ob['viewpoint']
+                if dbg:
+                    step_path_lens[i] = len(step_path)
+                traj[i]['path'].append(step_path)
+                if len(traj[i]['path'][-1]) == 1:
+                    prev_vp = traj[i]['path'][-2][-1]
                 else:
-                    prev_vp = ob['viewpoint']
+                    prev_vp = traj[i]['path'][-1][-2]
 
                 scanvp_key = '%s_%s' % (ob['scan'], prev_vp)
-                cand_map = self.scanvp_cands.get(scanvp_key, {})
+                cand_map = self.scanvp_cands[scanvp_key]
                 if dbg:
                     print(
                         f"[DEBUG_NAN][make_equiv_action] i={i} scan={ob['scan']} cur_vp={ob['viewpoint']} "
@@ -559,18 +541,6 @@ class MP3DAgent(BaseAgent):
                         f"scanvp_key={scanvp_key} cand_num={len(cand_map)} traj_len={len(traj[i]['path'])}",
                         flush=True
                     )
-
-                if action not in cand_map:
-                    if dbg:
-                        print(
-                            f"[DEBUG_NAN][make_equiv_action] action missing in cand_map: action={action}, "
-                            f"available={list(cand_map.keys())[:20]} (truncated)",
-                            flush=True
-                        )
-                    # Avoid polluting trajectory with invalid self-loop/empty-path transitions.
-                    continue
-
-                traj[i]['path'].append(step_path if len(step_path) > 0 else [ob['viewpoint']])
                 viewidx = cand_map[action]
                 heading = (viewidx % 12) * math.radians(30)
                 elevation = (viewidx // 12 - 1) * math.radians(30)
@@ -715,8 +685,11 @@ class MP3DAgent(BaseAgent):
         obs = batch_dict["observations"]
         envs = batch_dict["env"]
         data_type = batch_dict['data_type']
-        # keep feature DB handle for DEBUG_NAN tracebacks
-        self.feat_db = getattr(dataset, "feat_db", None)
+        # keep feature DB handle only in debug mode
+        if debug_nan_from_args(args):
+            self.feat_db = getattr(dataset, "feat_db", None)
+        else:
+            self.feat_db = None
 
         max_action_len = config.val_max_action_len[name] if validate else config.train_max_action_len[name]
 
@@ -778,24 +751,6 @@ class MP3DAgent(BaseAgent):
                 pano_inputs = self.panorama_feature_variable_object(obs)
                 panorama_out = model('panorama', pano_inputs)
                 pano_embeds, pano_masks = panorama_out['pano_embeds'], panorama_out['pano_masks']
-                if debug_nan_from_args(args):
-                    dbg_nonfinite_tensors(
-                        "panorama_forward",
-                        [("pano_embeds", pano_embeds)],
-                    )
-                    if not torch.isfinite(pano_embeds).all():
-                        m = model.module if hasattr(model, 'module') else model
-                        bad_params = []
-                        for n, p in m.img_embeddings.named_parameters():
-                            if not torch.isfinite(p).all():
-                                bad_params.append(n)
-                        if bad_params:
-                            print(
-                                f"[DEBUG_NAN][panorama_forward] non-finite img_embeddings params: {bad_params[:10]}",
-                                flush=True
-                            )
-                if not torch.isfinite(pano_embeds).all():
-                    raise RuntimeError("Non-finite pano_embeds detected; abort rollout immediately")
                 pano_den = pano_denominator_for_avg(pano_masks, args)
                 avg_pano_embeds = torch.sum(pano_embeds * pano_masks.unsqueeze(2), 1) / pano_den  # [B, D=768]
 
@@ -1084,10 +1039,10 @@ class MP3DAgent(BaseAgent):
                 step_path_lens = self.make_equiv_action(cpu_a_t, gmaps, obs, traj=traj, env=envs)
                 if debug_nan_from_args(args):
                     # Print aggregated behavior every N steps to quickly judge over-stopping.
-                    debug_every = max(1, int(getattr(args, "debug_nan_log_every", 10)))
+                    debug_every = max(1, int(getattr(args, "debug_log_every", 10)))
                     if (t % debug_every) == 0:
                         stop_num = sum([1 for x in cpu_a_t if x is None])
-                        non_stop_lens = [x for x in step_path_lens if x > 0]
+                        non_stop_lens = [x for x in (step_path_lens or []) if x > 0]
                         len_1 = sum([1 for x in non_stop_lens if x == 1])
                         len_2 = sum([1 for x in non_stop_lens if x == 2])
                         len_3p = sum([1 for x in non_stop_lens if x >= 3])

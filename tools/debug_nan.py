@@ -2,7 +2,7 @@
 DEBUG_NAN 调试开关与辅助函数。
 
 启用方式（任一即可）：
-  - 命令行：`--debug_nan`
+  - 命令行：`--debug`
   - 环境变量：`DEBUG_NAN=1`
 
 推荐排查顺序：
@@ -28,7 +28,7 @@ _TRUTHY = frozenset(("1", "true", "yes", "on", "y"))
 
 
 def debug_nan_from_args(args: Any) -> bool:
-    if getattr(args, "debug_nan", False):
+    if getattr(args, "debug", False):
         return True
     v = os.environ.get("DEBUG_NAN", "").strip().lower()
     return v in _TRUTHY

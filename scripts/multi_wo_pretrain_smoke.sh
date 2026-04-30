@@ -44,7 +44,7 @@ MAX_CKPT="${MAX_SAVED_CHECKPOINTS:-1}"
 torchrun --nnodes=1 --nproc_per_node=4 --master_port "${MASTER_PORT}" train.py \
     --mode train \
     --stage multi --cfg_file configs/multi.yaml \
-    --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision amp_bf16 \
+    --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision auto \
     --batch_size 1 --gradient_accumulation_step 8 --num_steps_per_epoch "${SMOKE_STEPS}" --lr 3e-5 --seed 0 --num_epochs "${SMOKE_EPOCHS}" \
     --enable_og --enable_summarize --enable_fgr2r \
     --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --lora_target_modules q_proj,v_proj \

@@ -30,6 +30,32 @@ def _str2bool(v):
     raise argparse.ArgumentTypeError("expected true or false, got %r" % (v,))
 
 
+def _resolve_precision(requested_precision):
+    """
+    Auto-map precision by GPU model:
+      - A100 -> amp_bf16
+      - V100 -> fp16
+    """
+    if requested_precision != "auto":
+        return requested_precision, None
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required for training, but no CUDA device is available.")
+
+    dev_idx = torch.cuda.current_device()
+    dev_name = torch.cuda.get_device_name(dev_idx)
+    dev_name_upper = dev_name.upper()
+
+    if "A100" in dev_name_upper:
+        return "amp_bf16", f"auto precision: detected GPU {dev_name} -> amp_bf16"
+    if "V100" in dev_name_upper:
+        return "fp16", f"auto precision: detected GPU {dev_name} -> fp16"
+    raise RuntimeError(
+        f"Unsupported GPU model for --precision auto: {dev_name}. "
+        "Only A100 and V100 are supported."
+    )
+
+
 def read_args():
     parser = argparse.ArgumentParser()
 
@@ -39,17 +65,16 @@ def read_args():
 
     # local fusion
     parser.add_argument('--off_batch_task', action='store_true', default=False, help="whether all process is training same task")
-    parser.add_argument('--debug', action="store_true", help="debug mode")
     parser.add_argument(
-        '--debug_nan',
+        '--debug',
         action='store_true',
-        help='NaN 调试模式（优先单 GPU）；亦可设环境变量 DEBUG_NAN=1。见 tools/debug_nan.py',
+        help='调试模式（含 NaN 调试日志）；亦可设环境变量 DEBUG_NAN=1。见 tools/debug_nan.py',
     )
     parser.add_argument(
-        '--debug_nan_log_every',
+        '--debug_log_every',
         type=int,
         default=10,
-        help='DEBUG_NAN 聚合日志打印间隔（每 N 个 rollout step 打印一次 stop_rate 和 step_path_len 分布）',
+        help='Debug 聚合日志打印间隔（每 N 个 rollout step 打印一次 stop_rate 和 step_path_len 分布）',
     )
     parser.add_argument('--seed', type=int, default=0)
 
@@ -70,9 +95,9 @@ def read_args():
     parser.add_argument("--gradient_accumulation_step", type=int, default=2)
     parser.add_argument(
         "--precision",
-        choices=["amp_bf16", "amp_bfloat16", "bf16", "fp16", "fp32"],
-        default="fp32",
-        help="Floating point precision.",
+        choices=["auto", "amp_bf16", "amp_bfloat16", "bf16", "fp16", "fp32"],
+        default="auto",
+        help="Floating point precision. auto: A100->amp_bf16, V100->fp16.",
     )
     parser.add_argument("--workers", type=int, default=0)
 
@@ -183,7 +208,7 @@ def read_args():
     args = parser.parse_args()
 
     if os.environ.get("DEBUG_NAN", "").strip().lower() in ("1", "true", "yes", "on", "y"):
-        args.debug_nan = True
+        args.debug = True
 
     if args.use_lora and not args.update_llm:
         parser.error(
@@ -198,6 +223,8 @@ def read_args():
     ###################### configurations #########################
     # single-gpu or multi-gpu
     device_id = init_distributed_device(args)
+    resolved_precision, precision_note = _resolve_precision(args.precision)
+    args.precision = resolved_precision
     global_cfg = EasyDict(yaml.safe_load(open(str(Path(args.cfg_file).resolve()))))
 
     args.data_dir = Path(args.data_dir).resolve()
@@ -219,6 +246,8 @@ def read_args():
     logger.info('**********************Start logging**********************')
     gpu_list = os.environ['CUDA_VISIBLE_DEVICES'] if 'CUDA_VISIBLE_DEVICES' in os.environ.keys() else 'ALL'
     logger.info('CUDA_VISIBLE_DEVICES=%s' % gpu_list)
+    if precision_note is not None:
+        logger.info(precision_note)
     for key, val in vars(args).items():
         logger.info('{:16} {}'.format(key, val))
     log_config_to_file(global_cfg, logger=logger)

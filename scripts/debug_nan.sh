@@ -22,7 +22,7 @@ DATA_DIR="${DATA_DIR:-data}"
 LM_PATH="${LM_PATH:-data/models/Vicuna-7B}"
 CHECKPOINT="${CHECKPOINT:-/code/NaviLLM/checkpoints/model_with_pretrain.pt}"
 # 清空则不加 --resume_from_checkpoint（仅从 Vicuna init）
-PRECISION="${PRECISION:-fp16}"
+PRECISION="${PRECISION:-auto}"
 OUTPUT_DIR="${OUTPUT_DIR:-output/debug_nan}"
 # 可选：小规模数据冒烟，例如: EXTRA_ARGS="--max_datapoints 32"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
@@ -40,7 +40,7 @@ fi
 # torchrun 续行末尾不要穿插注释。
 torchrun --nnodes=1 --nproc_per_node="${NPROC_PER_NODE}" --master_port "${MASTER_PORT}" train.py \
     --mode train \
-    --debug_nan \
+    --debug --debug_log_every 20 \
     --stage multi --cfg_file configs/multi.yaml \
     --data_dir "${DATA_DIR}" \
     --pretrained_model_name_or_path "${LM_PATH}" \

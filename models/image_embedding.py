@@ -49,8 +49,12 @@ class ImageEmbeddings(nn.Module):
 
         self.mapper = nn.Linear(config.hidden_size, config.output_size)
         self.debug_nan = os.environ.get("DEBUG_NAN", "").strip().lower() in ("1", "true", "yes", "on", "y")
-        # When debugging NaNs, run projector in fp32 for stability.
-        self.projector_fp32 = self.debug_nan
+        # Keep mapper in fp32 on V100 for stability; do not tie this to DEBUG_NAN.
+        self.projector_fp32 = False
+        if torch.cuda.is_available():
+            dev_name = torch.cuda.get_device_name(torch.cuda.current_device()).upper()
+            if "V100" in dev_name:
+                self.projector_fp32 = True
 
     def forward_panorama_per_step(self, 
         view_img_fts, 
