@@ -40,6 +40,11 @@ def read_args():
     # local fusion
     parser.add_argument('--off_batch_task', action='store_true', default=False, help="whether all process is training same task")
     parser.add_argument('--debug', action="store_true", help="debug mode")
+    parser.add_argument(
+        '--debug_nan',
+        action='store_true',
+        help='NaN 调试模式（优先单 GPU）；亦可设环境变量 DEBUG_NAN=1。见 tools/debug_nan.py',
+    )
     parser.add_argument('--seed', type=int, default=0)
 
     parser.add_argument("--num_epochs", type=int, default=30)
@@ -170,6 +175,9 @@ def read_args():
         help="The number of datapoints used for debug."
     )
     args = parser.parse_args()
+
+    if os.environ.get("DEBUG_NAN", "").strip().lower() in ("1", "true", "yes", "on", "y"):
+        args.debug_nan = True
 
     if args.use_lora and not args.update_llm:
         parser.error(

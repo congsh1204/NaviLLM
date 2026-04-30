@@ -407,8 +407,11 @@ class NavModel(nn.Module):
         
         for i in range(batch_size):
             fuse_logits[i][cand_masks[i]] = torch.cat([predictions[i, 0:1],predictions[i, 1:cand_nums[i]][inv_perms[i]]],dim=0)
-            
-        fuse_logits.masked_fill_(cand_masks.logical_not(), -float('inf'))
+        # 原来：fuse_logits.masked_fill_(cand_masks.logical_not(), -float('inf'))
+        # 现：有限负值避免 softmax / Categorical(probs 路径) 在整行无效时出现 NaN（尤其 fp16）。
+        _neg = torch.finfo(fuse_logits.dtype).min
+        fuse_logits.nan_to_num_(nan=_neg, posinf=_neg, neginf=_neg)
+        fuse_logits.masked_fill_(cand_masks.logical_not(), _neg)
 
         return {
             'fuse_embeds': fuse_embeds.detach(),

@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import torch
 import random
 from tqdm import tqdm
@@ -8,6 +9,7 @@ from typing import Dict
 import torch.nn as nn
 from tools.common_utils import all_gather
 from tools.parser import read_args, random_seed
+from tools.debug_nan import check_gradients, debug_nan_from_args, warn_if_multi_gpu
 from tasks.loaders import create_dataloaders
 from tasks.feature_db import create_feature_db, create_object_feature_db
 from models.nav_model import NavModel
@@ -84,11 +86,25 @@ def train_one_epoch(
             entropy_metric=entropy_metric,
             instr_pred_metric=instr_pred_metric
         )
-        loss_metric.accumulate(loss.item())
-        loss_stats[name].accumulate(loss.item())
+        lf = loss.item()
+        loss_metric.accumulate(lf)
+        loss_stats[name].accumulate(lf)
+        if debug_nan_from_args(args) and (not math.isfinite(lf)):
+            logger.error(
+                "DEBUG_NAN: agent.train scalar loss non-finite (step=%s task=%s). Rollout 内已分项打印 CE/LM obj 见日志。",
+                step,
+                name,
+            )
 
         if (step+1) % args.gradient_accumulation_step==0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), 40.)
+            if debug_nan_from_args(args):
+                bg = check_gradients(model.module if hasattr(model, "module") else model)
+                if bg:
+                    logger.error(
+                        "DEBUG_NAN: %d params with non-finite grad after accumulation (_amp 未用时仍注意 --precision fp16)。",
+                        len(bg),
+                    )
             optimizer.step()
             optimizer.zero_grad()
 
@@ -210,6 +226,7 @@ def calc_overall_score(results, cfg):
 
 def main():
     args, global_cfg, logger, device_id = read_args()
+    warn_if_multi_gpu(logger, args)
     random_seed(args.seed + args.rank)
 
     ##################### DATASET #####################

@@ -14,6 +14,16 @@ from contextlib import nullcontext
 from models.graph_utils import GraphMap
 from typing import List
 
+from tools.debug_nan import (
+    debug_nan_from_args,
+    dbg_nonfinite_tensors,
+    maybe_patch_zero_valid_navigation,
+    nav_candidate_mask,
+    pano_denominator_for_avg,
+    print_nav_sampling_diag,
+    report_loss_nonfinite,
+)
+
 def pad_tensors(tensors, lens=None, pad=0):
     """B x [T, ...]"""
     if lens is None:
@@ -684,8 +694,13 @@ class MP3DAgent(BaseAgent):
                 pano_inputs = self.panorama_feature_variable_object(obs)
                 panorama_out = model('panorama', pano_inputs)
                 pano_embeds, pano_masks = panorama_out['pano_embeds'], panorama_out['pano_masks']
-                avg_pano_embeds = torch.sum(pano_embeds * pano_masks.unsqueeze(2), 1) / \
-                                torch.sum(pano_masks, 1, keepdim=True)  # [B, D=768]
+                if debug_nan_from_args(args):
+                    dbg_nonfinite_tensors(
+                        "panorama_forward",
+                        [("pano_embeds", pano_embeds)],
+                    )
+                pano_den = pano_denominator_for_avg(pano_masks, args)
+                avg_pano_embeds = torch.sum(pano_embeds * pano_masks.unsqueeze(2), 1) / pano_den  # [B, D=768]
 
                 for i, gmap in enumerate(gmaps):
                     if not ended[i]:
@@ -736,7 +751,27 @@ class MP3DAgent(BaseAgent):
                 nav_logits = nav_outs['fuse_logits']
                 nav_vpids = nav_inputs['gmap_vpids']
 
-                nav_probs = torch.softmax(nav_logits / args.temperature, 1)
+                nav_mask = nav_candidate_mask(nav_inputs)
+                # DEBUG_NAN：无合法候选时修补 logits（等价于仅能 stop）；den=0 已在全景平均处处理
+                maybe_patch_zero_valid_navigation(
+                    args, nav_logits, ended, nav_mask, batch_size, tag=f"navigation t={t}"
+                )
+
+                # 原来：nav_probs = torch.softmax(nav_logits / args.temperature, dim=1)
+                nav_logits_sample = (nav_logits / args.temperature).float()
+
+                # DEBUG_NAN：选房前 diagnostics（diag 里 nav_probs = softmax(nav_logits_sample) 仅观测）
+                if debug_nan_from_args(args):
+                    if not torch.isfinite(nav_logits).all():
+                        pairs = [("nav_logits", nav_logits)]
+                        _fe = nav_outs.get("fuse_embeds")
+                        if isinstance(_fe, torch.Tensor):
+                            pairs.append(("fuse_embeds", _fe))
+                        dbg_nonfinite_tensors(
+                            "navigation bad logits — check panorama / cand prompts above",
+                            pairs,
+                        )
+                    print_nav_sampling_diag(args, nav_logits, nav_logits_sample, nav_mask, t)
 
                 imitation_learning = feedback == 'teacher'
                 # Imitation Learning
@@ -754,7 +789,10 @@ class MP3DAgent(BaseAgent):
                             visited_masks=nav_inputs['gmap_visited_masks'],
                     )
                     ############# Single-Step Loss #############
-                    cnt_loss += criterion(nav_logits, nav_targets) * train_ml / batch_size / args.gradient_accumulation_step
+                    _nav_ls = criterion(nav_logits, nav_targets)
+                    if debug_nan_from_args(args):
+                        report_loss_nonfinite("navigation_ce", _nav_ls)
+                    cnt_loss += _nav_ls * train_ml / batch_size / args.gradient_accumulation_step
 
                     ml_loss += cnt_loss.detach()
 
@@ -767,7 +805,8 @@ class MP3DAgent(BaseAgent):
                 if feedback == 'teacher':  # imitation learning
                     a_t = nav_targets  # teacher forcing
                 elif feedback == 'sample':
-                    c = torch.distributions.Categorical(nav_probs.float())
+                    # 原来：c = torch.distributions.Categorical(nav_probs.float())
+                    c = torch.distributions.Categorical(logits=nav_logits_sample)
                     entropy_metric.accumulate(c.entropy().sum().item()/ batch_size)  # For log
                     entropys.append(c.entropy())  # For optimization
                     a_t = c.sample().detach()
@@ -827,7 +866,10 @@ class MP3DAgent(BaseAgent):
                     obj_targets = self.teacher_object(obs)
 
                     if not validate:
-                        obj_loss = criterion(obj_logits, obj_targets) * args.obj_loss_coef / batch_size / args.gradient_accumulation_step
+                        _obj_ls = criterion(obj_logits, obj_targets)
+                        if debug_nan_from_args(args):
+                            report_loss_nonfinite("object_grounding_ce", _obj_ls)
+                        obj_loss = _obj_ls * args.obj_loss_coef / batch_size / args.gradient_accumulation_step
                         obj_loss.backward()
                         ml_loss += obj_loss.detach()
 
@@ -869,6 +911,8 @@ class MP3DAgent(BaseAgent):
                     nav_inputs["prompts"] = self.prepare_prompts("embodied_qa", nav_inputs)
                     output = model('embodied_qa', nav_inputs, training=not validate, **kwargs)
                     if not validate:
+                        if debug_nan_from_args(args):
+                            report_loss_nonfinite("lm_loss_fgr2r", output["loss"])
                         lm_loss = output["loss"] * args.gen_loss_coef / batch_size / args.gradient_accumulation_step
                         lm_loss.backward()
                         instr_pred_metric.accumulate(lm_loss.detach().item() * args.gradient_accumulation_step)
@@ -905,6 +949,8 @@ class MP3DAgent(BaseAgent):
                     nav_inputs["prompts"] = self.prepare_prompts("summarization", nav_inputs)
                     output = model('summarization', nav_inputs, training=not validate, **kwargs)
                     if not validate:
+                        if debug_nan_from_args(args):
+                            report_loss_nonfinite("lm_loss_summarize", output["loss"])
                         lm_loss = output["loss"] * args.gen_loss_coef / batch_size / args.gradient_accumulation_step
                         lm_loss.backward()
                         instr_pred_metric.accumulate(lm_loss.detach().item() * args.gradient_accumulation_step)
