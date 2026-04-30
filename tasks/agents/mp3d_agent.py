@@ -756,6 +756,17 @@ class MP3DAgent(BaseAgent):
                         "panorama_forward",
                         [("pano_embeds", pano_embeds)],
                     )
+                    if not torch.isfinite(pano_embeds).all():
+                        m = model.module if hasattr(model, 'module') else model
+                        bad_params = []
+                        for n, p in m.img_embeddings.named_parameters():
+                            if not torch.isfinite(p).all():
+                                bad_params.append(n)
+                        if bad_params:
+                            print(
+                                f"[DEBUG_NAN][panorama_forward] non-finite img_embeddings params: {bad_params[:10]}",
+                                flush=True
+                            )
                 pano_den = pano_denominator_for_avg(pano_masks, args)
                 avg_pano_embeds = torch.sum(pano_embeds * pano_masks.unsqueeze(2), 1) / pano_den  # [B, D=768]
 

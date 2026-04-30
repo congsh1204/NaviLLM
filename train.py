@@ -98,6 +98,7 @@ def train_one_epoch(
 
         if (step+1) % args.gradient_accumulation_step==0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), 40.)
+            skip_step = False
             if debug_nan_from_args(args):
                 bg = check_gradients(model.module if hasattr(model, "module") else model)
                 if bg:
@@ -105,7 +106,11 @@ def train_one_epoch(
                         "DEBUG_NAN: %d params with non-finite grad after accumulation (_amp 未用时仍注意 --precision fp16)。",
                         len(bg),
                     )
-            optimizer.step()
+                    skip_step = True
+            if skip_step:
+                logger.error("DEBUG_NAN: skip optimizer.step() due to non-finite gradients; zeroing grads only.")
+            else:
+                optimizer.step()
             optimizer.zero_grad()
 
         lr_scheduler.step()
