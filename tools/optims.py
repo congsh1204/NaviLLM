@@ -116,6 +116,54 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
     return resume_from_epoch
 
 
+def _log_trainable_parameters(model, logger):
+    trainable = [
+        (name, tuple(param.shape), param.numel())
+        for name, param in model.named_parameters()
+        if param.requires_grad
+    ]
+    total = sum(numel for _, _, numel in trainable)
+
+    group_sums = {}
+    lang_model_non_lora = []
+    watched_keywords = ("projector", "vision", "embed", "lm_head")
+    watched_trainable = []
+
+    for name, shape, numel in trainable:
+        lname = name.lower()
+        if name.startswith("lang_model."):
+            group = "lang_model.lora" if "lora_" in lname else "lang_model.non_lora"
+            if "lora_" not in lname:
+                lang_model_non_lora.append((name, shape, numel))
+        else:
+            group = name.split(".", 1)[0]
+
+        group_sums[group] = group_sums.get(group, 0) + numel
+        if any(keyword in lname for keyword in watched_keywords):
+            watched_trainable.append((name, shape, numel))
+
+    logger.info(
+        "Trainable parameter detail: tensors=%d params=%.2fM",
+        len(trainable),
+        total / 1e6,
+    )
+    for group, numel in sorted(group_sums.items()):
+        logger.info("Trainable group: %s %.2fM", group, numel / 1e6)
+
+    if lang_model_non_lora:
+        logger.warning(
+            "Found %d trainable non-LoRA language-model tensors; expected zero for LoRA-only LLM training.",
+            len(lang_model_non_lora),
+        )
+    if watched_trainable:
+        logger.info("Watched trainable tensors matching projector/vision/embed/lm_head:")
+        for name, shape, numel in watched_trainable:
+            logger.info("WATCH_TRAINABLE %s shape=%s params=%.4fM", name, shape, numel / 1e6)
+
+    for name, shape, numel in trainable:
+        logger.info("TRAINABLE_PARAM %s shape=%s params=%.4fM", name, shape, numel / 1e6)
+
+
 def dist_models(args, model, logger):
     logger.info("*************** init model *************** ")
     # args.rank: global rank.
@@ -133,6 +181,8 @@ def dist_models(args, model, logger):
     )
     param_sums = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info("model initialized with {:.2f} M trainable parameters".format(param_sums/1000**2))
+    if getattr(args, "rank", 0) == 0:
+        _log_trainable_parameters(model, logger)
     if args.distributed:
         from torch.nn.parallel import DistributedDataParallel as DDP
         model = DDP(model, device_ids=[device_id], find_unused_parameters=True)
