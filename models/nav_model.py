@@ -1,4 +1,5 @@
 import copy
+import inspect
 import torch
 import collections
 import torch.nn as nn
@@ -85,12 +86,24 @@ def maybe_enable_lora(args, logger, lang_model):
     if not target_modules:
         raise ValueError('`--lora_target_modules` is empty. Please provide at least one target module.')
 
-    lora_cfg = LoraConfig(
+    use_dora = getattr(args, 'use_dora', False)
+    lora_kwargs = dict(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
         bias='none',
         target_modules=target_modules,
+    )
+    if use_dora:
+        if 'use_dora' not in inspect.signature(LoraConfig).parameters:
+            raise ImportError(
+                'DoRA is enabled but this `peft` version does not support `LoraConfig(use_dora=...)`. '
+                'Please upgrade peft, e.g. `pip install -U peft`.'
+            )
+        lora_kwargs['use_dora'] = True
+
+    lora_cfg = LoraConfig(
+        **lora_kwargs,
     )
 
     # Keep the custom Modified* wrapper intact and only adapt the transformer backbone.
@@ -104,7 +117,8 @@ def maybe_enable_lora(args, logger, lang_model):
     trainable_params = sum(p.numel() for p in lang_model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in lang_model.parameters())
     logger.info(
-        'LoRA enabled: r=%d alpha=%d dropout=%.3f target_modules=%s trainable=%.2fM / total=%.2fM',
+        '%s enabled: r=%d alpha=%d dropout=%.3f target_modules=%s trainable=%.2fM / total=%.2fM',
+        'DoRA' if use_dora else 'LoRA',
         args.lora_r,
         args.lora_alpha,
         args.lora_dropout,
@@ -127,8 +141,11 @@ def configure_llm_training(args, logger, lang_model):
     """
     update_llm = getattr(args, "update_llm", False)
     use_lora = getattr(args, "use_lora", False)
+    use_dora = getattr(args, "use_dora", False)
     if use_lora and not update_llm:
         raise ValueError("use_lora requires update_llm true (same rule as argument parsing).")
+    if use_dora and not use_lora:
+        raise ValueError("use_dora requires use_lora true (same rule as argument parsing).")
 
     # 1) If LLM update is disabled, freeze all language-model parameters.
     if not update_llm:
@@ -142,7 +159,9 @@ def configure_llm_training(args, logger, lang_model):
             param.requires_grad = False
         for name, param in lang_model.named_parameters():
             lname = name.lower()
-            if "lora_" in lname or "lora_a" in lname or "lora_b" in lname:
+            is_lora_param = "lora_" in lname or "lora_a" in lname or "lora_b" in lname
+            is_dora_param = use_dora and ("lora_magnitude" in lname or "magnitude_vector" in lname)
+            if is_lora_param or is_dora_param:
                 param.requires_grad = True
     else:
         for param in lang_model.parameters():
@@ -153,14 +172,15 @@ def configure_llm_training(args, logger, lang_model):
     if not update_llm:
         llm_mode = "frozen"
     elif use_lora:
-        llm_mode = "lora_only"
+        llm_mode = "dora_only" if use_dora else "lora_only"
     else:
         llm_mode = "full_finetune"
     logger.info(
-        "LLM training mode: %s (update_llm=%s, use_lora=%s): trainable=%.2fM / total=%.2fM",
+        "LLM training mode: %s (update_llm=%s, use_lora=%s, use_dora=%s): trainable=%.2fM / total=%.2fM",
         llm_mode,
         update_llm,
         use_lora,
+        use_dora,
         trainable_params / 1e6,
         total_params / 1e6,
     )

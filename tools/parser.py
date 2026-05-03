@@ -152,6 +152,12 @@ def read_args():
         help="enable LoRA for the language model (default: off; requires --update_llm true)",
     )
     parser.add_argument(
+        "--use_dora",
+        action="store_true",
+        default=False,
+        help="enable DoRA on top of LoRA adapters (requires --use_lora and a PEFT version with use_dora support)",
+    )
+    parser.add_argument(
         "--update_llm",
         type=_str2bool,
         nargs="?",
@@ -214,6 +220,8 @@ def read_args():
         parser.error(
             "--use_lora requires --update_llm true. When LLM updates are disabled, LoRA must not be enabled."
         )
+    if args.use_dora and not args.use_lora:
+        parser.error("--use_dora requires --use_lora because DoRA is configured through PEFT LoraConfig.")
 
     if args.resume_from_checkpoint is not None and not str(args.resume_from_checkpoint).strip():
         args.resume_from_checkpoint = None

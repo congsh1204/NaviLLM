@@ -85,7 +85,12 @@ def check_checkpoint(args, model, optimizer, lr_scheduler, logger) -> int:
             non_lora_missing = []
             for k in missing_keys:
                 lk = k.lower()
-                if ("lora_a" in lk) or ("lora_b" in lk):
+                if (
+                    ("lora_a" in lk)
+                    or ("lora_b" in lk)
+                    or ("lora_magnitude" in lk)
+                    or ("magnitude_vector" in lk)
+                ):
                     expected_missing_lora.append(k)
                 else:
                     non_lora_missing.append(k)
@@ -125,16 +130,23 @@ def _log_trainable_parameters(model, logger):
     total = sum(numel for _, _, numel in trainable)
 
     group_sums = {}
-    lang_model_non_lora = []
+    lang_model_non_adapter = []
     watched_keywords = ("projector", "vision", "embed", "lm_head")
     watched_trainable = []
 
     for name, shape, numel in trainable:
         lname = name.lower()
+        is_adapter_param = (
+            "lora_" in lname
+            or "lora_a" in lname
+            or "lora_b" in lname
+            or "lora_magnitude" in lname
+            or "magnitude_vector" in lname
+        )
         if name.startswith("lang_model."):
-            group = "lang_model.lora" if "lora_" in lname else "lang_model.non_lora"
-            if "lora_" not in lname:
-                lang_model_non_lora.append((name, shape, numel))
+            group = "lang_model.adapter" if is_adapter_param else "lang_model.non_adapter"
+            if not is_adapter_param:
+                lang_model_non_adapter.append((name, shape, numel))
         else:
             group = name.split(".", 1)[0]
 
@@ -150,10 +162,10 @@ def _log_trainable_parameters(model, logger):
     for group, numel in sorted(group_sums.items()):
         logger.info("Trainable group: %s %.2fM", group, numel / 1e6)
 
-    if lang_model_non_lora:
+    if lang_model_non_adapter:
         logger.warning(
-            "Found %d trainable non-LoRA language-model tensors; expected zero for LoRA-only LLM training.",
-            len(lang_model_non_lora),
+            "Found %d trainable non-adapter language-model tensors; expected zero for LoRA/DoRA-only LLM training.",
+            len(lang_model_non_adapter),
         )
     if watched_trainable:
         logger.info("Watched trainable tensors matching projector/vision/embed/lm_head:")
@@ -187,11 +199,27 @@ def dist_models(args, model, logger):
         from torch.nn.parallel import DistributedDataParallel as DDP
         model = DDP(model, device_ids=[device_id], find_unused_parameters=True)
 
-        # args.batch_size: BATCH_SIZE_PER_GPU
-        logger.info('Training in distributed mode : total_batch_size: %d' % (total_gpus * args.batch_size))
+        # args.batch_size is per-GPU micro-batch; gradient accumulation determines the optimizer-step batch.
+        global_batch_size = total_gpus * args.batch_size
+        effective_batch_size = global_batch_size * args.gradient_accumulation_step
+        logger.info(
+            "Training in distributed mode: micro_batch_per_gpu=%d global_batch_size=%d "
+            "gradient_accumulation_step=%d effective_batch_size=%d",
+            args.batch_size,
+            global_batch_size,
+            args.gradient_accumulation_step,
+            effective_batch_size,
+        )
     else:
         total_gpus = 1
-        logger.info('Training with a single process')
+        effective_batch_size = args.batch_size * args.gradient_accumulation_step
+        logger.info(
+            "Training with a single process: micro_batch=%d gradient_accumulation_step=%d "
+            "effective_batch_size=%d",
+            args.batch_size,
+            args.gradient_accumulation_step,
+            effective_batch_size,
+        )
 
     return model, optimizer, resume_from_epoch, lr_scheduler
 
