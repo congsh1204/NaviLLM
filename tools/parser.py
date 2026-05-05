@@ -133,6 +133,17 @@ def read_args():
     parser.add_argument("--save_latest_states", action='store_true')
     parser.add_argument("--save_pred_results", action="store_true")
     parser.add_argument("--save_detail_results", action="store_true")
+    parser.add_argument(
+        "--log_trainable_params",
+        action="store_true",
+        help="Print every trainable parameter name during initialization. Off by default to keep logs compact.",
+    )
+    parser.add_argument(
+        "--trainable_param_log_limit",
+        type=int,
+        default=30,
+        help="Maximum number of watched trainable parameter names to print when detailed logging is off.",
+    )
 
     # training
     parser.add_argument('--mode', type=str, default="train", choices=["train", "test"])

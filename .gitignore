@@ -5,3 +5,4 @@ data/**
 **egg-info**
 *.pyc
 checkpoints/**
+vln_choice/**
