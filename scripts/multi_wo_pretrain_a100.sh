@@ -1,9 +1,6 @@
 #!/usr/bin/env sh
 
-# set mp3d path (resolve repo root from this script location)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-export PYTHONPATH="${REPO_ROOT}/build:${PYTHONPATH}"
+export PYTHONPATH=/code/Matterport3DSimulator/build:$PYTHONPATH
 
 # set java path
 export JAVA_HOME=$java_path
@@ -41,11 +38,10 @@ torchrun --nnodes=1 --nproc_per_node=4 --master_port 41000 train.py \
     --mode train \
     --stage multi --cfg_file configs/multi.yaml \
     --data_dir data --pretrained_model_name_or_path data/models/Vicuna-7B --precision auto \
-    --batch_size 1 --gradient_accumulation_step 8 --num_steps_per_epoch 2000 --lr 1e-5 --seed 0 --num_epochs 30 \
+    --batch_size 1 --gradient_accumulation_step 16 --num_steps_per_epoch 2000 --lr 5e-5 --seed 0 --num_epochs 60 \
     --enable_og --enable_summarize --enable_fgr2r \
-    --update_llm true --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 --lora_target_modules q_proj,v_proj \
-    --train_datasets R2R \
+    --update_llm true --use_lora --lora_r 32 --lora_alpha 64 --lora_dropout 0.05 --lora_target_modules q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj \
     --test_datasets R2R \
-    --max_saved_checkpoints 1 --output_dir output/multi_wo_pretrain \
-    --resume_from_checkpoint /code/NaviLLM/checkpoints/model_with_pretrain.pt \
+    --max_saved_checkpoints 1 --output_dir output/multi_wo_pretrain_a100_5.5 \
+    --resume_from_checkpoint output/multi_wo_pretrain_a100/epoch_28.pt
     
