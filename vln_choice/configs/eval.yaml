@@ -1,0 +1,13 @@
+model_name_or_path: vln_choice/outputs/checkpoints/qwen_vl_choice_lora
+split: val_unseen
+max_steps: 15
+max_new_tokens: 128
+
+metrics:
+  - choice_accuracy
+  - stop_accuracy
+  - json_valid_rate
+  - success_rate
+  - spl
+  - navigation_error
+

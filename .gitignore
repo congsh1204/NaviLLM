@@ -1,8 +1,9 @@
 **__pycache__**
 **output**
-data
 data/**
 **egg-info**
 *.pyc
 checkpoints/**
-vln_choice/**
+.ipynb_checkpoints/
+vln_choice/data_processed/**
+vln_choice/composite_images/**

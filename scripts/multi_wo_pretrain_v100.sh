@@ -14,11 +14,11 @@ export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
 # 或在 bash 里: source "$(conda info --base)/etc/profile.d/conda.sh" && conda activate navillm
 
 
-export NCCL_SHM_DISABLE=1
-export NCCL_NVLS_ENABLE=0
-export NCCL_COLLNET_ENABLE=0
-export NCCL_SOCKET_IFNAME=lo
-export TORCH_DISTRIBUTED_DEBUG=OFF
+# NCCL/torchrun settings for single-node Docker training.
+export NCCL_NVLS_ENABLE=0          # 禁用 NVLink SHARP/NVLS；V100 通常不需要，避免 NCCL 探测不支持路径
+export NCCL_COLLNET_ENABLE=0       # 禁用 CollNet；主要用于多机高速网络，单机训练一般不需要
+export NCCL_SOCKET_IFNAME=lo       # 分布式 bootstrap 使用本机 loopback；仅适合单机训练，多机不能用 lo
+export TORCH_DISTRIBUTED_DEBUG=OFF # 关闭 PyTorch 分布式详细日志；排查时可改为 DETAIL
 
 # ---------- torchrun 参数说明（勿在续行 \ 之间插入 # 注释，否则会打断命令）----------
 # --nnodes=1: 单机训练

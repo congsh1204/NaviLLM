@@ -1,0 +1,15 @@
+connectivity_dir: data/connectivity
+scan_dir: /home/pcl/Matterport3DData/v1/scans
+
+rendered_view_dir: vln_choice/data_processed/mp3d_views
+step_manifest: vln_choice/data_processed/step_manifest_dedup_point_ids.jsonl
+choice_samples: vln_choice/data_processed/choice_samples.jsonl
+sft_samples: vln_choice/data_processed/qwen_sft.jsonl
+composite_image_dir: vln_choice/composite_images
+
+composite:
+  tile_size: 224
+  panorama_view_indices: [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33]
+  max_candidates: 4
+  include_stop: true
+

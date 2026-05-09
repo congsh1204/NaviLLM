@@ -943,7 +943,27 @@ class MP3DAgent(BaseAgent):
                             })
 
                 ########### Fine-grained R2R Sub-task ###########
-                enable_fgr2r = (feedback == 'teacher') and (not flag) and (not a_t_stop[0]) and (data_type[0]=='r2r') and (not validate) and 'fg_instruction' in ob and args.enable_fgr2r
+                enable_fgr2r = (
+                    (feedback == 'teacher')
+                    and (not flag)
+                    and (not a_t_stop[0])
+                    and (data_type[0] == 'r2r')
+                    and (not validate)
+                    and args.enable_fgr2r
+                    and all('fg_instruction' in item and 'fg_view' in item for item in obs)
+                )
+                fgr2r_answers = []
+                if enable_fgr2r:
+                    for item in obs:
+                        if t >= len(item['fg_view']):
+                            enable_fgr2r = False
+                            break
+                        fg_idx = item['fg_view'][t]
+                        if fg_idx >= len(item['fg_instruction']):
+                            enable_fgr2r = False
+                            break
+                        fgr2r_answers.append(item['fg_instruction'][fg_idx])
+
                 if enable_fgr2r:
                     pano_inputs = self.panorama_feature_variable_12views(obs)
                     panorama_out = model('panorama', pano_inputs)
@@ -957,7 +977,7 @@ class MP3DAgent(BaseAgent):
                     )
                     nav_inputs['instruction'] = ['where are we going with direction ({}) ?'.format(idx) for idx in nav_targets]
                     nav_inputs["data_type"] = ['fgr2r' for idx in nav_targets]
-                    nav_inputs['answer'] = [ob['fg_instruction'][ob['fg_view'][t]] for ob in obs]
+                    nav_inputs['answer'] = fgr2r_answers
                     nav_inputs['hist_vis'] = [[] for idx in nav_targets]
                     nav_inputs['history'] = [[] for idx in nav_targets]
                     nav_inputs["prompts"] = self.prepare_prompts("embodied_qa", nav_inputs)

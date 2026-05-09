@@ -1,0 +1,15 @@
+model_name_or_path: Qwen/Qwen2.5-VL-3B-Instruct
+train_jsonl: vln_choice/data_processed/qwen_sft.jsonl
+output_dir: vln_choice/outputs/checkpoints/qwen_vl_choice_lora
+
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 5.0e-5
+num_train_epochs: 1
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+
