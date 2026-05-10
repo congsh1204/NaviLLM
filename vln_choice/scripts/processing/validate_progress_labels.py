@@ -35,7 +35,7 @@ from typing import Dict, List, Optional, Set, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vln_choice.io import read_jsonl, write_jsonl
-from vln_choice.progress.normalize import normalize_phrase
+from vln_choice.progress.normalize import entity_tokens, tokenize
 
 
 # -----------------------------------------------------------------------------
@@ -43,19 +43,32 @@ from vln_choice.progress.normalize import normalize_phrase
 # -----------------------------------------------------------------------------
 
 
-def _normalize_set(values) -> Set[str]:
+def _entity_token_set(values) -> Set[str]:
+    """Tokens for the **entity** side of an overlap check (drops directional/modal tokens)."""
     out: Set[str] = set()
     for v in values or []:
         if not isinstance(v, str):
             continue
-        norm = normalize_phrase(v)
-        if norm:
-            out.add(norm)
+        for tok in entity_tokens(v):
+            out.add(tok)
+    return out
+
+
+def _landmark_token_set(values) -> Set[str]:
+    """Tokens for the **landmark** side (plain tokenize: keep all non-stopword tokens)."""
+    out: Set[str] = set()
+    for v in values or []:
+        if not isinstance(v, str):
+            continue
+        for tok in tokenize(v):
+            if tok:
+                out.add(tok)
     return out
 
 
 def _entity_overlap_count(entities: List[str], landmarks: List[str]) -> int:
-    return len(_normalize_set(entities) & _normalize_set(landmarks))
+    """Asymmetric token-level overlap: drop non-entity tokens from the entity side."""
+    return len(_entity_token_set(entities) & _landmark_token_set(landmarks))
 
 
 def _is_fallback_source(source_detail: Dict) -> bool:
@@ -210,11 +223,20 @@ def _check_layer3(row: Dict, issues: List[str], details: Dict) -> None:
             })
             continue
 
-        # Evidence peak strictly before chunk end (only meaningful when chunk has >=2 positions)
-        if e - s >= 1:
+        # Evidence peak meaningfully early in the chunk:
+        # - chunk has >= 3 positions (e - s >= 2) so "peak vs end" is interpretable
+        # - peak is at least 2 positions before the end (gap >= 2)
+        # - peak has substantive overlap (>= 2) and either end has zero overlap
+        #   or peak's overlap is at least double the end's
+        if e - s >= 2:
             peak_pos, peak_count = max(overlaps_per_pos, key=lambda kv: kv[1])
             end_count = overlaps_per_pos[-1][1]
-            if peak_count > 0 and peak_pos < e and peak_count > end_count + 0:
+            gap = e - peak_pos
+            if (
+                peak_count >= 2
+                and gap >= 2
+                and (end_count == 0 or peak_count >= 2 * end_count)
+            ):
                 issues.append("L3_EVIDENCE_PEAK_BEFORE_END")
                 details.setdefault("evidence_peak_before_end", []).append({
                     "subgoal_index": sg,
@@ -222,6 +244,7 @@ def _check_layer3(row: Dict, issues: List[str], details: Dict) -> None:
                     "peak_pos": peak_pos,
                     "peak_count": peak_count,
                     "end_count": end_count,
+                    "gap": gap,
                 })
 
 

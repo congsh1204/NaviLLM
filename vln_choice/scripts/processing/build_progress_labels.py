@@ -12,7 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vln_choice.io import append_jsonl_record
 from vln_choice.progress.align_dp import align_subgoals_topk
-from vln_choice.progress.candidate_progress import align_expert_candidate_landmarks, chunk_view_for_subgoals
+from vln_choice.progress.candidate_progress import (
+    align_expert_candidate_landmarks,
+    chunk_view_for_subgoals,
+    compact_subgoals_and_assignments,
+)
 from vln_choice.progress.landmarks import build_path_landmarks, landmark_phrases_for_direction
 from vln_choice.progress.splitter import get_splitter, heuristic_split
 
@@ -668,6 +672,7 @@ def main():
                 assignments = llm_joint.get("step_subgoal_index", [0] * len(step_evidence))
                 if not args.no_candidate_monotonic_clip:
                     assignments = _enforce_monotonic(assignments)
+                subgoals, assignments, dropped_subgoal_indices = compact_subgoals_and_assignments(subgoals, assignments)
                 for i, row in enumerate(step_evidence):
                     row["subgoal_index"] = assignments[i] if i < len(assignments) else assignments[-1]
                     row["score"] = 1.0
@@ -690,6 +695,8 @@ def main():
                 }
                 if llm_joint.get("llm_error"):
                     source_detail_extra["llm_error"] = llm_joint["llm_error"]
+                if dropped_subgoal_indices:
+                    source_detail_extra["dropped_empty_subgoal_indices"] = dropped_subgoal_indices
                 step_progress_field = step_evidence
             elif splitter is not None and hasattr(splitter, "align_steps"):
                 subgoals = splitter.split(item["instruction"])
@@ -715,6 +722,7 @@ def main():
                 assignments = llm_align.get("step_subgoal_index", [0] * len(step_evidence))
                 if not args.no_candidate_monotonic_clip:
                     assignments = _enforce_monotonic(assignments)
+                subgoals, assignments, dropped_subgoal_indices = compact_subgoals_and_assignments(subgoals, assignments)
                 for i, row in enumerate(step_evidence):
                     row["subgoal_index"] = assignments[i] if i < len(assignments) else assignments[-1]
                     row["score"] = 1.0
@@ -737,6 +745,8 @@ def main():
                 }
                 if llm_align.get("llm_error"):
                     source_detail_extra["llm_error"] = llm_align["llm_error"]
+                if dropped_subgoal_indices:
+                    source_detail_extra["dropped_empty_subgoal_indices"] = dropped_subgoal_indices
                 step_progress_field = step_evidence
             else:
                 if splitter is None:

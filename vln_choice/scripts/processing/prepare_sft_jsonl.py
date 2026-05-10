@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vln_choice.io import read_jsonl, write_jsonl
-from vln_choice.progress.normalize import normalize_phrase
+from vln_choice.progress.normalize import entity_tokens, tokenize
 from vln_choice.prompts import (
     build_choice_prompt,
     build_egac_prompt,
@@ -26,12 +26,30 @@ def _parse_step_idx(sample_id: str) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
-def _normalize_set(values: List[str]) -> set:
+def _entity_token_set(values: List[str]) -> set:
+    """Tokens for the **entity** side of an overlap check.
+
+    Drops directional / generic-spatial / modal tokens via ``entity_tokens`` so the splitter's
+    over-extracted "left" / "right" / "wait" / "open" don't force false ``defer`` labels.
+    """
     out = set()
     for v in values or []:
-        norm = normalize_phrase(v)
-        if norm:
-            out.add(norm)
+        if not isinstance(v, str):
+            continue
+        for tok in entity_tokens(v):
+            out.add(tok)
+    return out
+
+
+def _landmark_token_set(values: List[str]) -> set:
+    """Tokens for the **landmark/observation** side. Plain tokenize keeps all content tokens."""
+    out = set()
+    for v in values or []:
+        if not isinstance(v, str):
+            continue
+        for tok in tokenize(v):
+            if tok:
+                out.add(tok)
     return out
 
 
@@ -98,8 +116,8 @@ def _extract_egac_fields(sample: Dict) -> Optional[Dict]:
     )
 
     commitment_state = _derive_commitment_state(
-        _normalize_set(observed_evidence),
-        _normalize_set(required_evidence),
+        _landmark_token_set(observed_evidence),
+        _entity_token_set(required_evidence),
         is_last_in_chunk,
         final_choice,
     )

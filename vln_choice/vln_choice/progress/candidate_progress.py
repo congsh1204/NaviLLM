@@ -45,6 +45,40 @@ def _enforce_monotonic(assignments: List[int]) -> List[int]:
     return out
 
 
+def compact_subgoals_and_assignments(
+    subgoals: List[dict],
+    assignments: List[int],
+) -> Tuple[List[dict], List[int], List[int]]:
+    """Drop subgoals that no path step is assigned to; remap ``assignments`` to the compact index space.
+
+    The LLM splitter sometimes produces N subgoals but only assigns path steps to M < N of them.
+    The leftover N-M subgoals carry no training signal (no step) and produce empty intervals in
+    ``chunk_view_for_subgoals``, which downstream consumers (validators, EGAC SFT prep) treat as
+    structural errors. Compacting away those dead subgoals is safer than emitting empty chunks.
+
+    Returns ``(compacted_subgoals, remapped_assignments, dropped_indices)``. The relative order of
+    surviving subgoals is preserved. If every assignment is out of range, falls back to keeping
+    just ``subgoals[0]`` and assigning every step to it (degenerate but consistent).
+    """
+    n = len(subgoals)
+    if n == 0:
+        return list(subgoals), list(assignments), []
+
+    active = sorted({sg for sg in assignments if isinstance(sg, int) and 0 <= sg < n})
+    if len(active) == n:
+        return list(subgoals), list(assignments), []
+
+    if not active:
+        # No usable assignment at all — degenerate to the first subgoal so chunk_view stays consistent.
+        return [subgoals[0]], [0] * len(assignments), list(range(1, n))
+
+    old_to_new = {old: new for new, old in enumerate(active)}
+    compacted = [subgoals[i] for i in active]
+    remapped = [old_to_new.get(sg, 0) for sg in assignments]
+    dropped = [i for i in range(n) if i not in old_to_new]
+    return compacted, remapped, dropped
+
+
 def chunk_view_for_subgoals(assignments: List[int], num_subgoals: int) -> Tuple[List[List[int]], List[str]]:
     """Build ``chunk_view[k]`` = closed hull of path_pos where assignment equals ``k`` (1-based).
 
